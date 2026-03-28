@@ -28,7 +28,7 @@ class EventBridgeDriver
 
     private string $scheduleGroup;
 
-    private string $roleArn;
+    private ?string $roleArn;
 
     private int $maxEventAgeSeconds;
 
@@ -42,7 +42,7 @@ class EventBridgeDriver
         $this->region = $config['region'] ?? 'eu-west-1';
         $this->prefix = $config['prefix'] ?? 'taskbridge';
         $this->scheduleGroup = $config['schedule_group'] ?? 'default';
-        $this->roleArn = $config['role_arn'] ?? '';
+        $this->roleArn = $config['role_arn'] ?? null;
         $this->maxEventAgeSeconds = (int) ($config['retry_policy']['maximum_event_age_seconds'] ?? 86400);
         $this->maxRetryAttempts = (int) ($config['retry_policy']['maximum_retry_attempts'] ?? 185);
     }
@@ -181,7 +181,7 @@ class EventBridgeDriver
             'Description' => "TaskBridge: {$job->class}",
             'Target' => [
                 'Arn' => $this->queueArnFromUrl($queueUrl),
-                'RoleArn' => $this->roleArn,
+                ...($this->roleArn ? ['RoleArn' => $this->roleArn] : []),
                 'Input' => json_encode($this->buildJobPayload($job->class)),
                 'RetryPolicy' => [
                     'MaximumEventAgeInSeconds' => $maxAge,

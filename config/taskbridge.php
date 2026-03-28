@@ -28,6 +28,8 @@ return [
     |
     | role_arn    — IAM role EventBridge Scheduler assumes to publish to SQS.
     |               The role must have sqs:SendMessage on the target queue.
+    |               Optional — omit when using CDK or another tool that attaches
+    |               the execution role directly to the schedule target.
     |
     | schedule_group — All schedules are placed in this group.
     |               Create the group in the AWS console before syncing.
