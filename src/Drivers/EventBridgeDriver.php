@@ -181,7 +181,11 @@ class EventBridgeDriver
             'Description' => "TaskBridge: {$job->class}",
             'Target' => [
                 'Arn' => $this->queueArnFromUrl($queueUrl),
-                ...($this->roleArn ? ['RoleArn' => $this->roleArn] : []),
+                'RoleArn' => $this->roleArn ?? throw new \RuntimeException(
+                    'TaskBridge: role_arn is required by AWS EventBridge Scheduler. '
+                    .'Set TASKBRIDGE_SCHEDULER_ROLE_ARN to the ARN of the IAM role that EventBridge should assume to publish to SQS. '
+                    .'When using CDK, pass the role ARN from your CDK stack output.'
+                ),
                 'Input' => json_encode($this->buildJobPayload($job->class)),
                 'RetryPolicy' => [
                     'MaximumEventAgeInSeconds' => $maxAge,

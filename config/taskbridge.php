@@ -27,9 +27,9 @@ return [
     | TaskBridge uses AWS EventBridge Scheduler to manage cron schedules.
     |
     | role_arn    — IAM role EventBridge Scheduler assumes to publish to SQS.
-    |               The role must have sqs:SendMessage on the target queue.
-    |               Optional — omit when using CDK or another tool that attaches
-    |               the execution role directly to the schedule target.
+    |               Required by the AWS API. The role must trust scheduler.amazonaws.com
+    |               and have sqs:SendMessage on the target queue.
+    |               When using CDK, pass the ARN from your stack output.
     |
     | schedule_group — All schedules are placed in this group.
     |               Create the group in the AWS console before syncing.

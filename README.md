@@ -102,7 +102,6 @@ aws scheduler create-schedule-group --name taskbridge
 ```dotenv
 AWS_DEFAULT_REGION=eu-west-1
 
-# Optional — omit when using CDK or another tool that attaches the role directly to the schedule target
 TASKBRIDGE_SCHEDULER_ROLE_ARN=arn:aws:iam::123456789012:role/taskbridge-scheduler-role
 TASKBRIDGE_SCHEDULE_GROUP=taskbridge
 TASKBRIDGE_SCHEDULE_PREFIX=taskbridge
@@ -289,7 +288,7 @@ return [
     'eventbridge' => [
         'region'         => env('AWS_DEFAULT_REGION', 'eu-west-1'),
         'prefix'         => env('TASKBRIDGE_SCHEDULE_PREFIX', 'taskbridge'),
-        'role_arn'       => env('TASKBRIDGE_SCHEDULER_ROLE_ARN'), // optional
+        'role_arn'       => env('TASKBRIDGE_SCHEDULER_ROLE_ARN'),
         'schedule_group' => env('TASKBRIDGE_SCHEDULE_GROUP', 'default'),
         'retry_policy'   => [
             'maximum_event_age_seconds' => env('TASKBRIDGE_RETRY_MAX_AGE_SECONDS', 86400),
