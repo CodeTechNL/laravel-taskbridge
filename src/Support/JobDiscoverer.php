@@ -39,7 +39,11 @@ class JobDiscoverer
 
                     $reflection = new \ReflectionClass($class);
 
-                    if (! $reflection->isAbstract() && $reflection->implementsInterface(ShouldQueue::class)) {
+                    if (
+                        ! $reflection->isAbstract()
+                        && $reflection->implementsInterface(ShouldQueue::class)
+                        && JobInspector::hasSimpleConstructor($class)
+                    ) {
                         $classes[] = $class;
                     }
                 } catch (\Throwable) {

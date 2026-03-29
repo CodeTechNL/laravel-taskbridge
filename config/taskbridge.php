@@ -63,7 +63,7 @@ return [
         'prefix' => env('TASKBRIDGE_SCHEDULE_PREFIX', 'taskbridge'),
         'role_arn' => env('TASKBRIDGE_SCHEDULER_ROLE_ARN'),
         'schedule_group' => env('TASKBRIDGE_SCHEDULE_GROUP', 'default'),
-        'retry_policy' => [
+'retry_policy' => [
             'maximum_event_age_seconds' => env('TASKBRIDGE_RETRY_MAX_AGE_SECONDS', 86400),
             'maximum_retry_attempts' => env('TASKBRIDGE_RETRY_MAX_ATTEMPTS', 185),
         ],

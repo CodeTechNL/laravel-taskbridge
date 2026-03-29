@@ -13,5 +13,6 @@ return [
         'scheduler' => 'Scheduler',
         'manual' => 'Manual',
         'dry_run' => 'Dry Run',
+        'scheduled_once' => 'Scheduled Once',
     ],
 ];

@@ -7,6 +7,7 @@ enum TriggeredBy: string
     case Scheduler = 'scheduler';
     case Manual = 'manual';
     case DryRun = 'dry_run';
+    case ScheduledOnce = 'scheduled_once';
 
     public function label(): string
     {
@@ -19,6 +20,7 @@ enum TriggeredBy: string
             self::Scheduler => 'gray',
             self::Manual => 'primary',
             self::DryRun => 'warning',
+            self::ScheduledOnce => 'info',
         };
     }
 }

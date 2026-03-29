@@ -13,10 +13,11 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
  * @property string $id
- * @property string $scheduled_job_id
+ * @property string|null $scheduled_job_id
  * @property RunStatus $status
- * @property string $triggered_by
- * @property Carbon $started_at
+ * @property TriggeredBy $triggered_by
+ * @property Carbon|null $scheduled_for
+ * @property Carbon|null $started_at
  * @property Carbon|null $finished_at
  * @property int|null $duration_ms
  * @property int $jobs_dispatched
@@ -36,6 +37,7 @@ class ScheduledJobRun extends Model
         'scheduled_job_id',
         'status',
         'triggered_by',
+        'scheduled_for',
         'started_at',
         'finished_at',
         'duration_ms',
@@ -48,6 +50,7 @@ class ScheduledJobRun extends Model
     protected $casts = [
         'status' => RunStatus::class,
         'triggered_by' => TriggeredBy::class,
+        'scheduled_for' => 'datetime',
         'started_at' => 'datetime',
         'finished_at' => 'datetime',
         'created_at' => 'datetime',

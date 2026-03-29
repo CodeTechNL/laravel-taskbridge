@@ -37,11 +37,16 @@ class TaskBridgeServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        $this->loadViewsFrom(__DIR__.'/../resources/views', 'taskbridge');
         $this->loadTranslationsFrom(__DIR__.'/../resources/lang', 'taskbridge');
 
         $this->publishes([
             __DIR__.'/../resources/lang' => lang_path('vendor/taskbridge'),
         ], 'taskbridge-lang');
+
+        $this->publishes([
+            __DIR__.'/../resources/views' => resource_path('views/vendor/taskbridge'),
+        ], 'taskbridge-views');
 
         $this->publishes([
             __DIR__.'/../config/taskbridge.php' => config_path('taskbridge.php'),

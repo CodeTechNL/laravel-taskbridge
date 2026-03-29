@@ -22,6 +22,9 @@
         "orchestra/testbench": "^10.0",
         "laravel/pint": "^1.0"
     },
+    "suggest": {
+        "filament/filament": "Required to use the TaskBridge dashboard and widgets (^3.0)"
+    },
     "autoload": {
         "psr-4": {
             "CodeTechNL\\TaskBridge\\": "src/"
