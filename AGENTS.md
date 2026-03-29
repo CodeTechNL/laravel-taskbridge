@@ -25,6 +25,14 @@ If `vendor/` is missing, run `composer install` first.
 
 **Interface names are final.** The four optional interfaces are: `RunsConditionally`, `HasGroup`, `HasCustomLabel`, `ReportsTaskOutput`. Do not use or reference the old names (`ConditionalJob`, `GroupedJob`, `LabeledJob`, `ReportsOutput`).
 
+**`ReportsTaskOutput` requires `reportOutput()`.** The interface declares `reportOutput(array $metadata): void` — it is no longer a marker. The `HasJobOutput` trait satisfies it:
+```php
+class ImportProducts implements ReportsTaskOutput, ShouldQueue
+{
+    use HasJobOutput; // provides the required reportOutput() implementation
+}
+```
+
 **`cronExpression()` is not part of any interface.** It is an optional method checked via `method_exists()`. Jobs without it require the cron to be set in the UI. Never add it to an interface.
 
 **Always use enum cases in queries** — `status` and `triggered_by` are Eloquent-cast enums:

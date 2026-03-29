@@ -5,11 +5,12 @@ namespace CodeTechNL\TaskBridge\Concerns;
 use CodeTechNL\TaskBridge\Support\JobOutputRegistry;
 
 /**
- * Ready-made implementation for jobs that implement ReportsTaskOutput.
+ * Satisfies the reportOutput() requirement of the ReportsTaskOutput interface.
  *
- * Call $this->reportOutput([...]) inside handle() with any key/value
- * metadata you want stored in the run log. The infrastructure wraps
- * it in a JobOutput DTO automatically.
+ * Add this trait to any job that implements ReportsTaskOutput. Call
+ * $this->reportOutput([...]) inside handle() with the key/value metadata
+ * you want stored in the run log. The infrastructure wraps it in a
+ * JobOutput DTO automatically.
  *
  *   public function handle(): void
  *   {
@@ -18,7 +19,7 @@ use CodeTechNL\TaskBridge\Support\JobOutputRegistry;
  */
 trait HasJobOutput
 {
-    protected function reportOutput(array $metadata): void
+    public function reportOutput(array $metadata): void
     {
         JobOutputRegistry::store(static::class, $metadata);
     }

@@ -3,9 +3,10 @@
 namespace CodeTechNL\TaskBridge\Contracts;
 
 /**
- * Marker interface — signals that this job reports structured output to the TaskBridge run log.
+ * Contract for jobs that report structured output to the TaskBridge run log.
  *
- * Use together with the HasJobOutput trait to get the reportOutput() helper:
+ * Implementing this interface requires a reportOutput() method. Add the
+ * HasJobOutput trait to your job class to get the implementation for free:
  *
  *   class ImportProducts implements ShouldQueue, ReportsTaskOutput
  *   {
@@ -21,4 +22,12 @@ namespace CodeTechNL\TaskBridge\Contracts;
  * On success the metadata is stored in the run log.
  * On failure TaskBridge automatically records an error output — no action needed in the job.
  */
-interface ReportsTaskOutput {}
+interface ReportsTaskOutput
+{
+    /**
+     * Store structured metadata to be written to the run log on completion.
+     *
+     * @param  array<string, mixed>  $metadata
+     */
+    public function reportOutput(array $metadata): void;
+}

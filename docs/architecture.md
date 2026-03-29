@@ -13,7 +13,7 @@ The `ScheduledJob` interface no longer exists. Any `ShouldQueue` job can be used
 | `RunsConditionally` | `shouldRun(): bool` | Return `false` to skip execution at runtime — logged as `Skipped` |
 | `HasGroup` | `group(): string` | Overrides the auto-detected group in the UI |
 | `HasCustomLabel` | `taskLabel(): string` | Overrides the auto-derived readable label in the UI |
-| `ReportsTaskOutput` | *(marker — no methods)* | Signals the job uses `HasJobOutput` to report metadata |
+| `ReportsTaskOutput` | `reportOutput(array $metadata): void` | Requires structured output reporting; satisfied by the `HasJobOutput` trait |
 
 ### Auto-detection fallbacks
 
