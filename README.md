@@ -192,13 +192,23 @@ Jobs whose constructors require non-scalar arguments (e.g. Eloquent models, serv
 
 > **PHP constructor rule:** Required parameters must come before optional ones. A parameter is optional only when it has a declared default value and all parameters after it also have default values. Violating this order causes PHP to silently strip the default value, making the parameter required.
 
-#### Nullable optional parameters
+#### Nullable parameters
 
-A nullable optional parameter (e.g. `?int $days = null`) appears as a blank text field in the UI. Leave it empty and the job receives `null`, allowing it to fall back to its own default logic (reading from config, for example):
+There are two distinct nullable cases:
+
+**Required nullable** — no default value, but accepts `null`. The Filament UI renders the field as **required**. Submitting it empty sends `null` to the job.
 
 ```php
 public function __construct(
-    public readonly ?int $retentionDays = null,
+    public readonly ?string $recipient,  // required — must be set (or explicitly null)
+) {}
+```
+
+**Optional nullable** — has a default of `null`. The Filament UI renders the field as optional with a helper text hint. Leave it empty and the job receives `null` and can fall back to its own default logic:
+
+```php
+public function __construct(
+    public readonly ?int $retentionDays = null,  // optional — leave blank to use config default
 ) {}
 
 public function handle(): void
@@ -207,6 +217,8 @@ public function handle(): void
     // ...
 }
 ```
+
+The distinction matters in the UI: required nullable fields are validated as required; optional nullable fields show a "Leave empty to use the application default" hint.
 
 ## Optional interfaces
 
