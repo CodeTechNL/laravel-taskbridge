@@ -25,6 +25,18 @@ trait HasJobOutput
     }
 
     /**
+     * Push a single key/value pair into the accumulated output bag.
+     *
+     * Shorthand for reportOutput([$key => $value]) — convenient inside loops:
+     *
+     *   $this->pushToReport('send_to', $company->owner->email);
+     */
+    public function pushToReport(string $key, mixed $value): void
+    {
+        JobOutputRegistry::accumulate(static::class, [$key => $value]);
+    }
+
+    /**
      * Read the accumulated output bag without clearing it.
      *
      * With no arguments returns the full bag as an array.

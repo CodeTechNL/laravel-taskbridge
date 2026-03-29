@@ -35,6 +35,13 @@ interface ReportsTaskOutput
     public function reportOutput(array $metadata): void;
 
     /**
+     * Push a single key/value pair into the accumulated output bag.
+     *
+     * Shorthand for reportOutput([$key => $value]).
+     */
+    public function pushToReport(string $key, mixed $value): void;
+
+    /**
      * Read the accumulated output bag without clearing it.
      *
      * With no arguments returns the full bag. With a key returns the value

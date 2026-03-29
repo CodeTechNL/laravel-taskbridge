@@ -27,15 +27,13 @@ class ExampleOutputJob implements ReportsTaskOutput, ShouldQueue
     {
         // Simulate reporting once per item, then appending a summary.
         foreach (range(1, 42) as $i) {
-            $this->reportOutput(['processed' => $i]);
+            $this->pushToReport('processed', $i);
         }
 
         foreach (range(1, 3) as $i) {
-            $this->reportOutput(['skipped' => $i]);
+            $this->pushToReport('skipped', $i);
         }
 
-        $this->reportOutput([
-            'total' => count($this->getOutputFromReport('processed', [])),
-        ]);
+        $this->pushToReport('total', count($this->getOutputFromReport('processed', [])));
     }
 }
