@@ -18,6 +18,9 @@ use Illuminate\Support\Str;
  * @property string|null $description
  * @property string|null $cron_expression
  * @property string|null $cron_override
+ * @property array|null $constructor_arguments
+ * @property Carbon|null $run_once_at
+ * @property string|null $run_once_schedule_name
  * @property int|null $retry_maximum_event_age_seconds
  * @property int|null $retry_maximum_retry_attempts
  * @property bool $enabled
@@ -41,6 +44,9 @@ class ScheduledJob extends Model
         'description',
         'cron_expression',
         'cron_override',
+        'constructor_arguments',
+        'run_once_at',
+        'run_once_schedule_name',
         'retry_maximum_event_age_seconds',
         'retry_maximum_retry_attempts',
         'enabled',
@@ -52,6 +58,8 @@ class ScheduledJob extends Model
         'enabled' => 'boolean',
         'last_run_at' => 'datetime',
         'last_status' => RunStatus::class,
+        'constructor_arguments' => 'array',
+        'run_once_at' => 'datetime',
         'retry_maximum_event_age_seconds' => 'integer',
         'retry_maximum_retry_attempts' => 'integer',
     ];
@@ -62,6 +70,16 @@ class ScheduledJob extends Model
             config('taskbridge.models.scheduled_job_run', ScheduledJobRun::class),
             'scheduled_job_id'
         );
+    }
+
+    public function isOnce(): bool
+    {
+        return $this->run_once_at !== null;
+    }
+
+    public function scopeRecurring(\Illuminate\Database\Eloquent\Builder $query): \Illuminate\Database\Eloquent\Builder
+    {
+        return $query->whereNull('run_once_at');
     }
 
     public function getEffectiveCronAttribute(): ?string

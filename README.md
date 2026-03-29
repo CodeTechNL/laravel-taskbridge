@@ -4,6 +4,22 @@ A **database-driven scheduler** that runs your Laravel jobs through **AWS EventB
 
 Laravel's built-in scheduler still works alongside this package. TaskBridge is an addition, not a replacement: use it for jobs that should be triggered by EventBridge so you are not dependent on a continuously running server or `schedule:run` cron for those tasks. Jobs are stored in your database, synced to EventBridge, and dispatched into SQS at the configured time. The queue worker picks them up and processes them as normal Laravel jobs.
 
+## Features
+
+- **No `schedule:run` dependency** — EventBridge fires jobs directly onto SQS; your server does not need to run continuously
+- **Database-driven** — every registered job is stored in `taskbridge_jobs`; history in `taskbridge_job_runs`
+- **Recurring schedules** — standard 5-part cron or 6-part AWS cron expression
+- **One-time schedules** — dispatch a job once at a specific date/time via `scheduleOnce()`; the record is kept in the database for visibility and purged automatically by `PruneOnceSchedulesJob`
+- **Scalar constructor arguments** — `bool`, `int`, `float`, `string` (and nullable variants) are serialized into the SQS payload at schedule-creation time and reconstructed by the queue worker
+- **Timezone-aware** — cron expressions are sent with `ScheduleExpressionTimezone` matching `config('app.timezone')`; one-time `at()` expressions are always converted to UTC
+- **Full run history** — every execution logged with status, duration, trigger type, sub-jobs dispatched, and structured output
+- **Enable / disable** — toggle a schedule on/off without deleting it; disabled schedules are removed from EventBridge but kept in the database
+- **Runtime conditions** — implement `RunsConditionally` to skip execution based on application state
+- **Structured output** — implement `ReportsTaskOutput` to log per-run metadata (rows processed, records skipped, etc.)
+- **Domain events** — hook into the execution lifecycle via Laravel events
+- **Built-in maintenance jobs** — `PruneRunsJob` and `PruneOnceSchedulesJob` ship with the package
+- **Custom models** — extend the default models for your own scopes and relations
+
 ## How it works
 
 ```
@@ -146,6 +162,49 @@ class SendDailyReport implements ShouldQueue
     // No cronExpression() — cron is set in the UI per environment.
 
     public function handle(): void { ... }
+}
+```
+
+### Constructor arguments
+
+Jobs with scalar constructor parameters (`bool`, `int`, `float`, `string`, or nullable variants) are fully supported. TaskBridge discovers them automatically and the Filament UI renders an input field for each parameter.
+
+```php
+class GenerateReport implements ShouldQueue
+{
+    use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
+
+    public function __construct(
+        public readonly string $type,
+        public readonly int    $rows    = 1000,
+        public readonly bool   $dryRun  = false,
+    ) {}
+
+    public function cronExpression(): string { return '0 6 * * 1'; }
+
+    public function handle(): void { /* uses $this->type, $this->rows, $this->dryRun */ }
+}
+```
+
+The argument values are **baked into the serialized SQS payload** at the time the EventBridge schedule is created (or at the time a one-time schedule is set up). This means the job is reconstructed with the exact values you configured when the queue worker processes it — the arguments survive the full EventBridge → SQS → queue worker round-trip.
+
+Jobs whose constructors require non-scalar arguments (e.g. Eloquent models, service objects) are **excluded from discovery** and will not appear in the UI. This is intentional — those values cannot be serialized into a static EventBridge payload.
+
+> **PHP constructor rule:** Required parameters must come before optional ones. A parameter is optional only when it has a declared default value and all parameters after it also have default values. Violating this order causes PHP to silently strip the default value, making the parameter required.
+
+#### Nullable optional parameters
+
+A nullable optional parameter (e.g. `?int $days = null`) appears as a blank text field in the UI. Leave it empty and the job receives `null`, allowing it to fall back to its own default logic (reading from config, for example):
+
+```php
+public function __construct(
+    public readonly ?int $retentionDays = null,
+) {}
+
+public function handle(): void
+{
+    $days = $this->retentionDays ?? (int) config('taskbridge.logging.retention_days', 30);
+    // ...
 }
 ```
 
@@ -293,7 +352,25 @@ $run = TaskBridge::run(SendDailyReport::class);
 
 // Dry run — calls handle() but Bus::fake() prevents actual queue dispatches
 $run = TaskBridge::run(SendDailyReport::class, dryRun: true);
+
+// Pass constructor arguments
+$run = TaskBridge::run(GenerateReport::class, force: true, arguments: ['weekly', 500, false]);
 ```
+
+### One-time scheduling
+
+Schedule a job to run once at a specific future time via EventBridge. The EventBridge schedule self-destructs after firing. A record is stored in `taskbridge_jobs` (`run_once_at` is set) so the scheduled time is visible in the UI until the row is pruned.
+
+```php
+use Carbon\Carbon;
+
+TaskBridge::scheduleOnce(GenerateReport::class, Carbon::parse('2024-06-01 09:00'));
+
+// With constructor arguments
+TaskBridge::scheduleOnce(GenerateReport::class, Carbon::parse('2024-06-01 09:00'), ['annual', 5000]);
+```
+
+The datetime must be in the future. It is interpreted in `config('app.timezone')` and converted to UTC for the EventBridge `at()` expression.
 
 ## Enable / disable jobs
 
@@ -356,7 +433,7 @@ return [
 
 ### PruneRunsJob
 
-Deletes run log entries older than `taskbridge.logging.retention_days` (default: 30 days). Runs daily at 03:00.
+Deletes run log entries older than a configurable retention window. Runs daily at 03:00.
 
 Enable it by adding it to the `jobs` array in config:
 
@@ -367,6 +444,23 @@ Enable it by adding it to the `jobs` array in config:
 ```
 
 Then sync to register it in EventBridge.
+
+The retention period is resolved in this order:
+1. The `$retentionDays` constructor argument — configured via the Filament UI when creating or editing the job record
+2. `taskbridge.logging.retention_days` config value
+3. Hard-coded fallback of 30 days
+
+### PruneOnceSchedulesJob
+
+Deletes `taskbridge_jobs` rows where `run_once_at` is set and the scheduled time is older than the configured retention window. This keeps the table clean after one-time schedules have fired.
+
+```php
+'jobs' => [
+    \CodeTechNL\TaskBridge\Jobs\PruneOnceSchedulesJob::class,
+],
+```
+
+Constructor argument `?int $retentionDays = null` — configure per-environment in the UI, or falls back to `taskbridge.logging.retention_days`.
 
 ### CheckMissedJobs
 

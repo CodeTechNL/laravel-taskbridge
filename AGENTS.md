@@ -63,6 +63,17 @@ config('taskbridge.models.scheduled_job', ScheduledJob::class)
 
 **`disable()` does not call `sync()`.** It calls `$this->eventBridge->remove()` directly.
 
+**`ScheduleExpressionTimezone` applies only to `cron()` and `rate()` expressions.** The `at()` expression (used by `scheduleOnce()`) is always UTC and must not include `ScheduleExpressionTimezone`. The `EventBridgeDriver` conditionally adds the timezone key only when the expression does not start with `at(`. The datetime must be converted to UTC via `->clone()->utc()` before formatting — do not call `->utc()` on the original Carbon instance, as it mutates in place.
+
+**One-time jobs have a `taskbridge_jobs` row.** `scheduleOnce()` creates a `ScheduledJob` record with `run_once_at` set. These rows are distinct from recurring job rows:
+- `$job->isOnce()` — returns `true` when `run_once_at !== null`
+- `ScheduledJob::recurring()` scope — `whereNull('run_once_at')` — use this whenever querying recurring jobs (e.g. in `findOrFail`, `enable`, `disable`, middleware lookup)
+- Never enable/disable or sync one-time job rows; they are read-only records
+
+**`CronTranslator::describe()` zero-pads hour and minute.** Output must be `"Daily at 08:00"`, never `"Daily at 8:0"`. The implementation uses `str_pad($value, 2, '0', STR_PAD_LEFT)` for both parts.
+
+**`PruneOnceSchedulesJob` exists in this package.** It deletes `taskbridge_jobs` rows where `run_once_at < now()->subDays($retentionDays)`. Constructor: `?int $retentionDays = null` — falls back to `taskbridge.logging.retention_days`. Register it the same way as `PruneRunsJob`.
+
 ## Further reading
 
 - @docs/architecture.md — complete class reference, model schemas, enum values, events, migrations

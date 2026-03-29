@@ -2,6 +2,7 @@
 
 namespace CodeTechNL\TaskBridge;
 
+use Carbon\Carbon;
 use CodeTechNL\TaskBridge\Contracts\RunsConditionally;
 use CodeTechNL\TaskBridge\Drivers\EventBridgeDriver;
 use CodeTechNL\TaskBridge\Enums\RunStatus;
@@ -93,8 +94,10 @@ class TaskBridge
 
     /**
      * Manually run a job, recording the run when logging is enabled.
+     *
+     * @param  array<int, mixed>  $arguments  Positional constructor arguments for the job.
      */
-    public function run(string $jobClass, bool $dryRun = false, bool $force = false): ScheduledJobRun
+    public function run(string $jobClass, bool $dryRun = false, bool $force = false, array $arguments = []): ScheduledJobRun
     {
         $record = $this->findOrFail($jobClass);
         $logging = config('taskbridge.logging.enabled', true);
@@ -104,7 +107,8 @@ class TaskBridge
             throw new \InvalidArgumentException("Class not found: {$jobClass}");
         }
 
-        $instance = JobInspector::make($jobClass);
+        // Use a no-constructor instance purely for shouldRun() metadata checks.
+        $metaInstance = JobInspector::make($jobClass);
 
         // Check enabled/shouldRun unless forced
         if (! $force) {
@@ -112,10 +116,15 @@ class TaskBridge
                 return $this->skipRun($record, $logging, $dryRun, 'Job is disabled');
             }
 
-            if ($instance instanceof RunsConditionally && ! $instance->shouldRun()) {
+            if ($metaInstance instanceof RunsConditionally && ! $metaInstance->shouldRun()) {
                 return $this->skipRun($record, $logging, $dryRun, 'shouldRun() returned false');
             }
         }
+
+        // Build the real handle instance — with constructor arguments when provided.
+        $instance = empty($arguments)
+            ? $metaInstance
+            : new $jobClass(...$arguments);
 
         $run = $logging ? $runModel::create([
             'scheduled_job_id' => $record->id,
@@ -179,6 +188,72 @@ class TaskBridge
         return $run ?? new $runModel(['status' => RunStatus::Succeeded]);
     }
 
+    /**
+     * Schedule a job to run exactly once at the given datetime via EventBridge.
+     *
+     * Works for both jobs that have a database record and bare job classes that
+     * have never been added as a recurring schedule. When no record exists, a
+     * transient (unsaved) ScheduledJob is built from the class so the driver
+     * can derive the identifier and queue connection; the run log entry is
+     * created with a null scheduled_job_id in that case.
+     *
+     * EventBridge auto-deletes the one-time schedule after it fires.
+     *
+     * @param  array<int, mixed>  $arguments  Positional constructor arguments baked into the SQS payload.
+     */
+    public function scheduleOnce(string $jobClass, Carbon $at, array $arguments = []): ScheduledJobRun
+    {
+        if (! class_exists($jobClass)) {
+            throw new \InvalidArgumentException("Class not found: {$jobClass}");
+        }
+
+        $jobModel = config('taskbridge.models.scheduled_job', ScheduledJob::class);
+        $record = $jobModel::recurring()->where('class', $jobClass)->first();
+
+        // Build a transient model for the driver when no DB record exists.
+        $driverJob = $record ?? new ScheduledJob([
+            'class' => $jobClass,
+            'identifier' => ScheduledJob::identifierFromClass($jobClass),
+            'queue_connection' => config('queue.default'),
+            'retry_maximum_event_age_seconds' => null,
+            'retry_maximum_retry_attempts' => null,
+        ]);
+
+        $scheduleName = $this->eventBridge->scheduleOnce($driverJob, $at, $arguments);
+
+        $logging = config('taskbridge.logging.enabled', true);
+        $runModel = config('taskbridge.models.scheduled_job_run', ScheduledJobRun::class);
+
+        if (! $logging) {
+            return new $runModel(['status' => RunStatus::Pending]);
+        }
+
+        // Create a one-time ScheduledJob row so the schedule is visible in the UI.
+        $onceRecord = $jobModel::create([
+            'class' => $jobClass,
+            'identifier' => $scheduleName,
+            'queue_connection' => $driverJob->queue_connection,
+            'group' => $record?->group,
+            'description' => $record?->description,
+            'constructor_arguments' => empty($arguments) ? null : $arguments,
+            'enabled' => false,
+            'run_once_at' => $at,
+            'run_once_schedule_name' => $scheduleName,
+        ]);
+
+        return $runModel::create([
+            'scheduled_job_id' => $onceRecord->id,
+            'status' => RunStatus::Pending,
+            'triggered_by' => TriggeredBy::ScheduledOnce,
+            'scheduled_for' => $at,
+            'created_at' => now(),
+            'output' => [
+                'job_class' => $jobClass,
+                'aws_schedule_name' => $scheduleName,
+            ],
+        ]);
+    }
+
     public function all(): ScheduledJobCollection
     {
         $model = config('taskbridge.models.scheduled_job', ScheduledJob::class);
@@ -218,7 +293,7 @@ class TaskBridge
     private function findOrFail(string $jobClass): ScheduledJob
     {
         $model = config('taskbridge.models.scheduled_job', ScheduledJob::class);
-        $record = $model::where('class', $jobClass)->first();
+        $record = $model::recurring()->where('class', $jobClass)->first();
 
         if (! $record) {
             throw new \InvalidArgumentException(

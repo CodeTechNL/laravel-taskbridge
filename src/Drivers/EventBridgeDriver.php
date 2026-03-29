@@ -3,6 +3,7 @@
 namespace CodeTechNL\TaskBridge\Drivers;
 
 use Aws\Scheduler\SchedulerClient;
+use Carbon\Carbon;
 use CodeTechNL\TaskBridge\Support\CronTranslator;
 use CodeTechNL\TaskBridge\Support\JobInspector;
 use CodeTechNL\TaskBridge\Support\ScheduledJobCollection;
@@ -31,6 +32,8 @@ class EventBridgeDriver
 
     private ?string $roleArn;
 
+    private string $timezone;
+
     private int $maxEventAgeSeconds;
 
     private int $maxRetryAttempts;
@@ -44,6 +47,7 @@ class EventBridgeDriver
         $this->prefix = $config['prefix'] ?? 'taskbridge';
         $this->scheduleGroup = $config['schedule_group'] ?? 'default';
         $this->roleArn = $config['role_arn'] ?? null;
+        $this->timezone = config('app.timezone', 'UTC');
         $this->maxEventAgeSeconds = (int) ($config['retry_policy']['maximum_event_age_seconds'] ?? 86400);
         $this->maxRetryAttempts = (int) ($config['retry_policy']['maximum_retry_attempts'] ?? 185);
     }
@@ -97,6 +101,41 @@ class EventBridgeDriver
         return $this->fetchExistingSchedules($this->getClient());
     }
 
+    /**
+     * Create a one-time EventBridge schedule that fires at the given datetime
+     * and self-destructs after completion.
+     *
+     * The schedule name includes a short random suffix so multiple one-time
+     * schedules can coexist for the same job without collisions.
+     *
+     * Returns the schedule name so callers can reference it in log records.
+     */
+    /**
+     * @param  array<int, mixed>  $arguments  Constructor arguments to bake into the SQS job payload.
+     */
+    public function scheduleOnce(mixed $job, Carbon $at, array $arguments = []): string
+    {
+        $suffix = strtolower(Str::random(8));
+        $scheduleName = "{$this->prefix}-once-{$job->identifier}-{$suffix}";
+        $atExpression = 'at('.$at->clone()->utc()->format('Y-m-d\TH:i:s').')';
+
+        $client = $this->getClient();
+
+        try {
+            $client->createSchedule($this->buildOnceSchedulePayload($job, $scheduleName, $atExpression, $arguments));
+        } catch (\Throwable $e) {
+            Log::error('TaskBridge EventBridge: failed to create one-time schedule', [
+                'schedule' => $scheduleName,
+                'at' => $at->toIso8601String(),
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
+        }
+
+        return $scheduleName;
+    }
+
     // ── Internal helpers ──────────────────────────────────────────────────────
 
     private function fetchExistingSchedules(mixed $client): array
@@ -127,7 +166,7 @@ class EventBridgeDriver
     private function createSchedule(mixed $client, mixed $job, string $scheduleName, string $cronExpression): void
     {
         try {
-            $client->createSchedule($this->buildSchedulePayload($job, $scheduleName, $cronExpression));
+            $client->createSchedule($this->buildSchedulePayload($job, $scheduleName, $cronExpression, $job->constructor_arguments ?? []));
         } catch (\Throwable $e) {
             Log::error('TaskBridge EventBridge: failed to create schedule', [
                 'schedule' => $scheduleName,
@@ -141,7 +180,7 @@ class EventBridgeDriver
     private function updateSchedule(mixed $client, mixed $job, string $scheduleName, string $cronExpression): void
     {
         try {
-            $client->updateSchedule($this->buildSchedulePayload($job, $scheduleName, $cronExpression));
+            $client->updateSchedule($this->buildSchedulePayload($job, $scheduleName, $cronExpression, $job->constructor_arguments ?? []));
         } catch (\Throwable $e) {
             Log::error('TaskBridge EventBridge: failed to update schedule', [
                 'schedule' => $scheduleName,
@@ -167,7 +206,21 @@ class EventBridgeDriver
         }
     }
 
-    private function buildSchedulePayload(mixed $job, string $scheduleName, string $cronExpression): array
+    /**
+     * @param  array<int, mixed>  $arguments
+     */
+    private function buildOnceSchedulePayload(mixed $job, string $scheduleName, string $atExpression, array $arguments = []): array
+    {
+        $payload = $this->buildSchedulePayload($job, $scheduleName, $atExpression, $arguments);
+        $payload['ActionAfterCompletion'] = 'DELETE';
+
+        return $payload;
+    }
+
+    /**
+     * @param  array<int, mixed>  $arguments
+     */
+    private function buildSchedulePayload(mixed $job, string $scheduleName, string $cronExpression, array $arguments = []): array
     {
         $maxAge = $job->retry_maximum_event_age_seconds ?? $this->maxEventAgeSeconds;
         $maxRetries = $job->retry_maximum_retry_attempts ?? $this->maxRetryAttempts;
@@ -177,6 +230,8 @@ class EventBridgeDriver
             'Name' => $scheduleName,
             'GroupName' => $this->scheduleGroup,
             'ScheduleExpression' => $cronExpression,
+            // at() expressions are always UTC — only cron/rate need a timezone.
+            ...(!str_starts_with($cronExpression, 'at(') ? ['ScheduleExpressionTimezone' => $this->timezone] : []),
             'FlexibleTimeWindow' => ['Mode' => 'OFF'],
             'State' => 'ENABLED',
             'Description' => "TaskBridge: {$job->class}",
@@ -187,7 +242,7 @@ class EventBridgeDriver
                     .'Set TASKBRIDGE_SCHEDULER_ROLE_ARN to the ARN of the IAM role that EventBridge should assume to publish to SQS. '
                     .'When using CDK, pass the role ARN from your CDK stack output.'
                 ),
-                'Input' => json_encode($this->buildJobPayload($job->class)),
+                'Input' => json_encode($this->buildJobPayload($job->class, $arguments)),
                 'RetryPolicy' => [
                     'MaximumEventAgeInSeconds' => $maxAge,
                     'MaximumRetryAttempts' => $maxRetries,
@@ -201,10 +256,19 @@ class EventBridgeDriver
      *
      * createPayload() is protected on the Queue base class, so we build
      * the payload manually — matching exactly what Laravel's SqsQueue produces.
+     *
+     * When $arguments are provided the job is instantiated with them so the
+     * constructor state is baked into the serialized command. EventBridge will
+     * deliver this payload to SQS; the Laravel queue worker deserializes the
+     * command and calls handle() — meaning the arguments survive the round-trip.
+     *
+     * @param  array<int, mixed>  $arguments
      */
-    private function buildJobPayload(string $class): array
+    private function buildJobPayload(string $class, array $arguments = []): array
     {
-        $job = JobInspector::make($class);
+        $job = empty($arguments)
+            ? JobInspector::make($class)
+            : new $class(...$arguments);
 
         return [
             'uuid' => (string) Str::uuid(),

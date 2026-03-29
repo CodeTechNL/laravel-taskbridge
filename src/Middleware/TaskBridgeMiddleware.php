@@ -30,7 +30,7 @@ class TaskBridgeMiddleware
         }
 
         $jobModel = config('taskbridge.models.scheduled_job', ScheduledJob::class);
-        $record = $jobModel::where('class', $class)->first();
+        $record = $jobModel::recurring()->where('class', $class)->first();
 
         if (! $record) {
             $next($job);

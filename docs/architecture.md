@@ -39,13 +39,18 @@ When optional interfaces are not implemented, TaskBridge derives values automati
 | `queue_connection` | string? | Laravel queue connection (SQS only) |
 | `cron_expression` | string? | Default cron from `cronExpression()` — nullable |
 | `cron_override` | string? | UI/API override; takes precedence over `cron_expression` |
+| `constructor_arguments` | json? | Positional array of scalar values baked into the SQS payload |
 | `retry_maximum_event_age_seconds` | int? | 60–86400; null = config default |
 | `retry_maximum_retry_attempts` | int? | 0–185; null = config default |
 | `enabled` | bool | `false` removes the schedule from EventBridge |
 | `last_run_at` | datetime? | Updated after every run |
 | `last_status` | RunStatus? | Cast to enum |
+| `run_once_at` | datetime? | Set for one-time schedules; null for recurring |
+| `run_once_schedule_name` | string? | The EventBridge schedule name for a one-time job; unique |
 
 - `effective_cron` computed attribute returns `cron_override ?? cron_expression` — may be `null` if neither is set
+- `isOnce(): bool` — returns `true` when `run_once_at !== null`
+- `scopeRecurring($query)` — `whereNull('run_once_at')` — use this when querying jobs that should be synced/enabled/disabled
 - `runs()` hasMany → `ScheduledJobRun`
 - `identifierFromClass(string $class)` static — applies `taskbridge.name_prefix` then kebab-cases the basename
 - Returns `ScheduledJobCollection` from `newCollection()`
@@ -144,7 +149,7 @@ Converts between 5-part standard cron and 6-part AWS EventBridge cron.
 |--------|---------|
 | `toEventBridge(string): string` | Wrapped in `cron(…)`; throws on invalid input |
 | `isValid(string): bool` | Validates both 5-part and 6-part |
-| `describe(string): string` | Human-readable sentence |
+| `describe(string): string` | Human-readable sentence — hour and minute are always zero-padded (e.g. `"Daily at 08:00"`, never `"Daily at 8:0"`) |
 | `nextRunAt(string): DateTimeImmutable` | |
 | `previousRunAt(string): DateTimeImmutable` | |
 
@@ -174,8 +179,14 @@ Wraps the AWS SDK `SchedulerClient`. All EventBridge communication happens here.
 - `sync(ScheduledJobCollection): SyncResult` — calls `listSchedules` to find existing schedules; calls `updateSchedule` for matches, `createSchedule` for new ones; removes orphaned schedules. Always upserts — never diffs by `ScheduleExpression` (not returned by `listSchedules`).
 - `remove(string $identifier)` — deletes the prefixed schedule
 - `buildSchedulePayload(ScheduledJob): array` — full request body: SQS target, retry policy, IAM role, JSON-encoded Laravel job payload. Never include `SqsParameters` — only valid for FIFO queues.
+- `scheduleOnce(string $class, Carbon $at, array $arguments)` — creates a one-time schedule using an `at()` expression in UTC. The EventBridge schedule has `ActionAfterCompletion: DELETE`.
 - `resolveQueueUrl(?string $connection)` — reads `queue.connections.{connection}.queue` from Laravel config
 - Schedule names: `{prefix}-{identifier}` (e.g. `taskbridge-send-invoice`)
+
+**Timezone handling:**
+- `cron()` and `rate()` expressions include `ScheduleExpressionTimezone` set to `config('app.timezone')`.
+- `at()` expressions (one-time) are **always UTC** and must not include `ScheduleExpressionTimezone`. The driver checks `str_starts_with($expression, 'at(')` before adding the timezone key.
+- The Carbon `$at` datetime must be cloned before calling `->utc()` to avoid mutating the original: `$at->clone()->utc()->format('Y-m-d\TH:i:s')`.
 
 ---
 
@@ -256,6 +267,9 @@ Used by "Run now" and "Dry run" UI actions. Runs synchronously in the HTTP reque
 | `000009` | Add `output` (json) to job runs |
 | `000010` | Add `description` (text, nullable) to jobs |
 | `000011` | Make `cron_expression` nullable on jobs |
+| `000012–000014` | Reserved / internal |
+| `000015` | Add `constructor_arguments` (json, nullable) to jobs |
+| `000016` | Add `run_once_at` (timestamp, nullable) and `run_once_schedule_name` (string, nullable, unique) to jobs |
 
 ---
 
@@ -270,5 +284,15 @@ Test fixtures (`tests/Fixtures/`):
 | `ExampleScheduledJob` | Basic `ShouldQueue` job, cron `0 * * * *` |
 | `ExampleConditionalJob` | Implements `RunsConditionally`; `shouldRun` configurable via constructor |
 | `ExampleOutputJob` | Implements `ReportsTaskOutput` + `HasJobOutput`; reports `['processed' => 42, 'skipped' => 3]` |
+
+## Built-in jobs
+
+| Class | Constructor | Purpose |
+|-------|------------|---------|
+| `PruneRunsJob` | `?int $retentionDays = null` | Deletes `taskbridge_job_runs` rows older than the retention window |
+| `PruneOnceSchedulesJob` | `?int $retentionDays = null` | Deletes `taskbridge_jobs` rows where `run_once_at < now()->subDays($n)` |
+| `CheckMissedJobs` | none | Dispatches `JobMissed` for jobs overdue by 2× their cron interval |
+
+Both prune jobs fall back to `taskbridge.logging.retention_days` config when `$retentionDays` is `null`.
 
 All tests use SQLite in-memory (Orchestra Testbench). Migrations are auto-loaded in `TestCase::setUp()`.

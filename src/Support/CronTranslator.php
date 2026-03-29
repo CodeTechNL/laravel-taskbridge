@@ -107,7 +107,7 @@ class CronTranslator
         }
 
         if ($minute !== '*' && $hour === '*') {
-            return "Every hour at minute {$minute}";
+            return 'Every hour at minute '.str_pad($minute, 2, '0', STR_PAD_LEFT);
         }
 
         if (str_contains($minute, ',') && $hour === '*') {
@@ -119,7 +119,7 @@ class CronTranslator
         }
 
         if ($dayOfMonth === '*' && $month === '*' && $dayOfWeek === '*') {
-            return "Daily at {$hour}:{$minute}";
+            return 'Daily at '.str_pad($hour, 2, '0', STR_PAD_LEFT).':'.str_pad($minute, 2, '0', STR_PAD_LEFT);
         }
 
         return $expression;
