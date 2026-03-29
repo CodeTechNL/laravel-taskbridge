@@ -2,7 +2,7 @@
 
 namespace CodeTechNL\TaskBridge;
 
-use CodeTechNL\TaskBridge\Contracts\ConditionalJob;
+use CodeTechNL\TaskBridge\Contracts\RunsConditionally;
 use CodeTechNL\TaskBridge\Drivers\EventBridgeDriver;
 use CodeTechNL\TaskBridge\Enums\RunStatus;
 use CodeTechNL\TaskBridge\Enums\TriggeredBy;
@@ -45,6 +45,11 @@ class TaskBridge
     public function getRegisteredClasses(): array
     {
         return $this->registeredClasses;
+    }
+
+    public function isRegistered(string $class): bool
+    {
+        return in_array($class, $this->registeredClasses, strict: true);
     }
 
     public function enable(string $jobClass): void
@@ -106,7 +111,7 @@ class TaskBridge
                 return $this->skipRun($record, $logging, $dryRun, 'Job is disabled');
             }
 
-            if ($instance instanceof ConditionalJob && ! $instance->shouldRun()) {
+            if ($instance instanceof RunsConditionally && ! $instance->shouldRun()) {
                 return $this->skipRun($record, $logging, $dryRun, 'shouldRun() returned false');
             }
         }

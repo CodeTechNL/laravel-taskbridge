@@ -2,9 +2,8 @@
 
 namespace CodeTechNL\TaskBridge\Jobs;
 
-use CodeTechNL\TaskBridge\Contracts\GroupedJob;
-use CodeTechNL\TaskBridge\Contracts\LabeledJob;
-use CodeTechNL\TaskBridge\Contracts\ScheduledJob;
+use CodeTechNL\TaskBridge\Contracts\HasCustomLabel;
+use CodeTechNL\TaskBridge\Contracts\HasGroup;
 use CodeTechNL\TaskBridge\Models\ScheduledJobRun;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -19,7 +18,7 @@ use Illuminate\Queue\SerializesModels;
  * scheduled automatically. The retention period is read from
  * taskbridge.logging.retention_days (default: 30).
  */
-class PruneRunsJob implements GroupedJob, LabeledJob, ScheduledJob, ShouldQueue
+class PruneRunsJob implements HasCustomLabel, HasGroup, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;

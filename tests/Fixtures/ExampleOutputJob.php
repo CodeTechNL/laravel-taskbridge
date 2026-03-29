@@ -3,15 +3,14 @@
 namespace CodeTechNL\TaskBridge\Tests\Fixtures;
 
 use CodeTechNL\TaskBridge\Concerns\HasJobOutput;
-use CodeTechNL\TaskBridge\Contracts\ReportsOutput;
-use CodeTechNL\TaskBridge\Contracts\ScheduledJob;
+use CodeTechNL\TaskBridge\Contracts\ReportsTaskOutput;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
-class ExampleOutputJob implements ReportsOutput, ScheduledJob, ShouldQueue
+class ExampleOutputJob implements ReportsTaskOutput, ShouldQueue
 {
     use Dispatchable;
     use HasJobOutput;

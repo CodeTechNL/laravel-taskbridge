@@ -3,6 +3,7 @@
 use CodeTechNL\TaskBridge\Jobs\PruneRunsJob;
 use CodeTechNL\TaskBridge\Models\ScheduledJob;
 use CodeTechNL\TaskBridge\Models\ScheduledJobRun;
+use Illuminate\Support\Str;
 
 return [
     /*
@@ -18,6 +19,23 @@ return [
         'scheduled_job' => ScheduledJob::class,
         'scheduled_job_run' => ScheduledJobRun::class,
     ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Task Name Prefix
+    |--------------------------------------------------------------------------
+    |
+    | An optional prefix applied to every job identifier.
+    | Useful for distinguishing jobs across multiple apps or environments.
+    |
+    | Defaults to the APP_ENV value, slugified and lowercased.
+    | e.g. "production"        → "production"
+    |      "Production Donny"  → "production-donny"
+    |
+    | Override via TASKBRIDGE_NAME_PREFIX or set to null to disable.
+    |
+    */
+    'name_prefix' => env('TASKBRIDGE_NAME_PREFIX', Str::slug(env('APP_ENV', 'local'))),
 
     /*
     |--------------------------------------------------------------------------

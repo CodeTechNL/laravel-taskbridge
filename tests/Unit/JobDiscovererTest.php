@@ -1,19 +1,19 @@
 <?php
 
-use CodeTechNL\TaskBridge\Contracts\ScheduledJob as ScheduledJobContract;
 use CodeTechNL\TaskBridge\Support\JobDiscoverer;
 use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleConditionalJob;
 use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleOutputJob;
 use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleScheduledJob;
+use Illuminate\Contracts\Queue\ShouldQueue;
 
 describe('JobDiscoverer', function () {
-    it('discovers classes implementing ScheduledJob in a directory', function () {
+    it('discovers ShouldQueue jobs in a directory', function () {
         $found = JobDiscoverer::discover([__DIR__.'/../Fixtures']);
 
         expect($found)->toContain(ExampleScheduledJob::class);
     });
 
-    it('discovers all ScheduledJob implementations in the directory', function () {
+    it('discovers all ShouldQueue jobs in the directory', function () {
         $found = JobDiscoverer::discover([__DIR__.'/../Fixtures']);
 
         expect($found)->toContain(ExampleScheduledJob::class)
@@ -21,12 +21,12 @@ describe('JobDiscoverer', function () {
             ->and($found)->toContain(ExampleOutputJob::class);
     });
 
-    it('only returns classes that implement the ScheduledJob contract', function () {
+    it('only returns classes that implement ShouldQueue', function () {
         $found = JobDiscoverer::discover([__DIR__.'/../Fixtures']);
 
         foreach ($found as $class) {
-            expect(is_a($class, ScheduledJobContract::class, true))->toBeTrue(
-                "{$class} does not implement ScheduledJob"
+            expect(is_a($class, ShouldQueue::class, true))->toBeTrue(
+                "{$class} does not implement ShouldQueue"
             );
         }
     });

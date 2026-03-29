@@ -6,6 +6,11 @@ use CodeTechNL\TaskBridge\Support\ScheduledJobCollection;
 
 describe('ScheduledJob model', function () {
     describe('identifierFromClass', function () {
+        beforeEach(function () {
+            // Disable prefix so these tests focus on the class-name conversion only.
+            config()->set('taskbridge.name_prefix', null);
+        });
+
         it('converts a fully-qualified class name to a kebab-case identifier', function () {
             expect(ScheduledJob::identifierFromClass('App\\Jobs\\SendTrialExpiredNotifications'))
                 ->toBe('send-trial-expired-notifications');
@@ -19,6 +24,13 @@ describe('ScheduledJob model', function () {
         it('handles a class with no namespace', function () {
             expect(ScheduledJob::identifierFromClass('MySimpleJob'))
                 ->toBe('my-simple-job');
+        });
+
+        it('prepends the name_prefix when set', function () {
+            config()->set('taskbridge.name_prefix', 'production');
+
+            expect(ScheduledJob::identifierFromClass('App\\Jobs\\SendDailyReport'))
+                ->toBe('production-send-daily-report');
         });
     });
 

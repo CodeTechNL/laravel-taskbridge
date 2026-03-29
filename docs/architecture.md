@@ -6,13 +6,22 @@ Complete class reference for developers and AI agents modifying this package. Fo
 
 ## Contracts
 
-| Interface | Required | Method | Purpose |
-|-----------|----------|--------|---------|
-| `ScheduledJob` | Yes | `cronExpression(): string` | Every scheduled job must implement this |
-| `ConditionalJob` | No | `shouldRun(): bool` | Return `false` to skip at runtime |
-| `GroupedJob` | No | `group(): string` | Groups jobs in the Filament UI dropdown |
-| `LabeledJob` | No | `taskLabel(): string` | Overrides the FQCN display name in the UI |
-| `ReportsOutput` | No | *(marker — no methods)* | Signals the job uses `HasJobOutput` |
+The `ScheduledJob` interface no longer exists. Any `ShouldQueue` job can be used with TaskBridge — no extra interface is required. The following interfaces are all optional and add specific behaviour.
+
+| Interface | Method | Purpose |
+|-----------|--------|---------|
+| `RunsConditionally` | `shouldRun(): bool` | Return `false` to skip execution at runtime — logged as `Skipped` |
+| `HasGroup` | `group(): string` | Overrides the auto-detected group in the UI |
+| `HasCustomLabel` | `taskLabel(): string` | Overrides the auto-derived readable label in the UI |
+| `ReportsTaskOutput` | *(marker — no methods)* | Signals the job uses `HasJobOutput` to report metadata |
+
+### Auto-detection fallbacks
+
+When optional interfaces are not implemented, TaskBridge derives values automatically:
+
+- **Label** — converts the class basename to sentence case: `SendDailyReport` → `"Send daily report"`
+- **Group** — uses the namespace segment directly above the class name: `App\Jobs\Reporting\SendDailyReport` → `"Reporting"`. Returns `null` when the class lives directly in a root segment (`Jobs`, `Commands`, etc.)
+- **Cron** — `cronExpression()` is not part of any interface. Add the method to the job class to provide a default; omit it to require the cron to be set in the UI. Checked via `method_exists()`.
 
 ---
 
@@ -24,20 +33,21 @@ Complete class reference for developers and AI agents modifying this package. Fo
 |--------|------|-------|
 | `id` | ulid | Primary key |
 | `class` | string | FQCN |
-| `identifier` | string | Kebab-case from class basename |
-| `group` | string? | Optional grouping label |
+| `identifier` | string | Kebab-case from class basename + optional name_prefix |
+| `group` | string? | Grouping label — auto-populated from class on create |
+| `description` | text? | Optional notes / description set in the UI |
 | `queue_connection` | string? | Laravel queue connection (SQS only) |
-| `cron_expression` | string | 5-part standard cron |
-| `cron_override` | string? | Temporary override; takes precedence when set |
+| `cron_expression` | string? | Default cron from `cronExpression()` — nullable |
+| `cron_override` | string? | UI/API override; takes precedence over `cron_expression` |
 | `retry_maximum_event_age_seconds` | int? | 60–86400; null = config default |
 | `retry_maximum_retry_attempts` | int? | 0–185; null = config default |
 | `enabled` | bool | `false` removes the schedule from EventBridge |
 | `last_run_at` | datetime? | Updated after every run |
 | `last_status` | RunStatus? | Cast to enum |
 
-- `effective_cron` computed attribute returns `cron_override ?? cron_expression`
+- `effective_cron` computed attribute returns `cron_override ?? cron_expression` — may be `null` if neither is set
 - `runs()` hasMany → `ScheduledJobRun`
-- `identifierFromClass(string $class)` static — converts `App\Jobs\SendInvoice` → `send-invoice`
+- `identifierFromClass(string $class)` static — applies `taskbridge.name_prefix` then kebab-cases the basename
 - Returns `ScheduledJobCollection` from `newCollection()`
 
 ### `ScheduledJobRun` (`taskbridge_job_runs`)
@@ -54,9 +64,6 @@ Complete class reference for developers and AI agents modifying this package. Fo
 | `jobs_dispatched` | int | Count of sub-jobs queued during run |
 | `output` | json? | Serialised `JobOutput` (status / message / metadata) |
 | `skipped_reason` | string? | Populated when status = Skipped |
-
-- `$timestamps = false` — timestamps managed manually
-- Uses `Prunable` trait — `prunable()` filters records older than `taskbridge.logging.retention_days` days
 
 ---
 
@@ -143,7 +150,7 @@ Converts between 5-part standard cron and 6-part AWS EventBridge cron.
 
 ### `JobDiscoverer`
 
-Scans filesystem paths using `Symfony\Component\Finder\Finder`. Extracts namespace and class name via regex, then uses `ReflectionClass` to confirm the class is non-abstract and implements `ScheduledJob`. Non-PHP files, unloadable classes, and abstract classes are silently skipped.
+Scans filesystem paths using `Symfony\Component\Finder\Finder`. Extracts namespace and class name via regex, then uses `ReflectionClass` to confirm the class is non-abstract and implements `ShouldQueue`. Non-PHP files, unloadable classes, and abstract classes are silently skipped.
 
 ### `ScheduledJobCollection` (extends `Eloquent\Collection`)
 
@@ -166,7 +173,7 @@ Wraps the AWS SDK `SchedulerClient`. All EventBridge communication happens here.
 
 - `sync(ScheduledJobCollection): SyncResult` — calls `listSchedules` to find existing schedules; calls `updateSchedule` for matches, `createSchedule` for new ones; removes orphaned schedules. Always upserts — never diffs by `ScheduleExpression` (not returned by `listSchedules`).
 - `remove(string $identifier)` — deletes the prefixed schedule
-- `buildSchedulePayload(ScheduledJob): array` — full request body: SQS target, retry policy, IAM role, JSON-encoded Laravel job payload
+- `buildSchedulePayload(ScheduledJob): array` — full request body: SQS target, retry policy, IAM role, JSON-encoded Laravel job payload. Never include `SqsParameters` — only valid for FIFO queues.
 - `resolveQueueUrl(?string $connection)` — reads `queue.connections.{connection}.queue` from Laravel config
 - Schedule names: `{prefix}-{identifier}` (e.g. `taskbridge-send-invoice`)
 
@@ -180,6 +187,7 @@ Singleton bound as `taskbridge`. Accessed via the `TaskBridge` facade.
 |--------|-------------|
 | `register(array $classes)` | Add classes to in-memory registry |
 | `getRegisteredClasses(): array` | Return registered classes |
+| `isRegistered(string $class): bool` | Check if a class is in the registry |
 | `enable(string $class)` | Set `enabled=true` + sync to EventBridge |
 | `disable(string $class)` | Set `enabled=false` + remove from EventBridge |
 | `overrideCron(string, string)` | Set `cron_override` + sync |
@@ -192,7 +200,7 @@ Singleton bound as `taskbridge`. Accessed via the `TaskBridge` facade.
 
 `run()` detail:
 - Instantiates the job class
-- Unless `$force=true`, checks `enabled` and `shouldRun()` — skips if either is false
+- Unless `$force=true`, checks `enabled` and `shouldRun()` (if `RunsConditionally`) — skips if either is false
 - Dry run: calls `Bus::fake()` before `handle()`, blocks actual dispatches
 - Normal run: hooks `JobQueued` listener to count sub-dispatches, calls `handle()` directly
 - Captures output via `JobOutputRegistry`
@@ -210,7 +218,7 @@ Triggered when EventBridge puts a message on SQS and a queue worker picks it up.
 
 `JobProcessing` event:
 1. Extract `commandName` from SQS payload
-2. Verify it implements `ScheduledJob` and exists in DB
+2. Check if the class is registered via `TaskBridge::isRegistered()` and exists in DB
 3. Create `ScheduledJobRun` (status=Running, triggered_by=Scheduler)
 4. Register a `JobQueued` listener for sub-dispatch counting
 5. Store tracking data keyed by job UUID
@@ -233,6 +241,24 @@ Used by "Run now" and "Dry run" UI actions. Runs synchronously in the HTTP reque
 
 ---
 
+## Migrations
+
+| File | Description |
+|------|-------------|
+| `000001` | Create `taskbridge_jobs` table |
+| `000002` | Create `taskbridge_job_runs` table |
+| `000003` | Add `triggered_by` to job runs |
+| `000004` | Add driver columns (later dropped) |
+| `000005` | Drop driver columns |
+| `000006` | Create settings table (later dropped) |
+| `000007` | Add retry policy columns to jobs |
+| `000008` | Add `queue_connection` to jobs |
+| `000009` | Add `output` (json) to job runs |
+| `000010` | Add `description` (text, nullable) to jobs |
+| `000011` | Make `cron_expression` nullable on jobs |
+
+---
+
 ## Testing
 
 `TaskBridgeFake` (`src/Testing/`) creates a real `EventBridgeDriver` with a null `SchedulerClient` — no AWS calls are made.
@@ -241,8 +267,8 @@ Test fixtures (`tests/Fixtures/`):
 
 | Fixture | Description |
 |---------|-------------|
-| `ExampleScheduledJob` | Basic job, cron `0 * * * *` |
-| `ExampleConditionalJob` | Implements `ConditionalJob`; `shouldRun` configurable |
-| `ExampleOutputJob` | Implements `ReportsOutput` + `HasJobOutput`; reports `['processed' => 42, 'skipped' => 3]` |
+| `ExampleScheduledJob` | Basic `ShouldQueue` job, cron `0 * * * *` |
+| `ExampleConditionalJob` | Implements `RunsConditionally`; `shouldRun` configurable via constructor |
+| `ExampleOutputJob` | Implements `ReportsTaskOutput` + `HasJobOutput`; reports `['processed' => 42, 'skipped' => 3]` |
 
 All tests use SQLite in-memory (Orchestra Testbench). Migrations are auto-loaded in `TestCase::setUp()`.

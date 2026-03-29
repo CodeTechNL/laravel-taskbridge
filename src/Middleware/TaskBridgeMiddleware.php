@@ -2,8 +2,7 @@
 
 namespace CodeTechNL\TaskBridge\Middleware;
 
-use CodeTechNL\TaskBridge\Contracts\ConditionalJob;
-use CodeTechNL\TaskBridge\Contracts\ScheduledJob as ScheduledJobContract;
+use CodeTechNL\TaskBridge\Contracts\RunsConditionally;
 use CodeTechNL\TaskBridge\Enums\RunStatus;
 use CodeTechNL\TaskBridge\Enums\TriggeredBy;
 use CodeTechNL\TaskBridge\Events\JobExecutionFailed;
@@ -13,6 +12,7 @@ use CodeTechNL\TaskBridge\Events\JobExecutionSucceeded;
 use CodeTechNL\TaskBridge\Models\ScheduledJob;
 use CodeTechNL\TaskBridge\Models\ScheduledJobRun;
 use CodeTechNL\TaskBridge\Support\JobOutputRegistry;
+use CodeTechNL\TaskBridge\TaskBridge;
 use Illuminate\Queue\Events\JobQueued;
 use Illuminate\Support\Facades\Event;
 
@@ -20,14 +20,16 @@ class TaskBridgeMiddleware
 {
     public function handle(mixed $job, callable $next): void
     {
-        if (! ($job instanceof ScheduledJobContract)) {
+        $class = get_class($job);
+
+        // Only track jobs that are registered in TaskBridge.
+        if (! app(TaskBridge::class)->isRegistered($class)) {
             $next($job);
 
             return;
         }
 
         $jobModel = config('taskbridge.models.scheduled_job', ScheduledJob::class);
-        $class = get_class($job);
         $record = $jobModel::where('class', $class)->first();
 
         if (! $record) {
@@ -39,12 +41,12 @@ class TaskBridgeMiddleware
         $logging = config('taskbridge.logging.enabled', true);
         $runModel = config('taskbridge.models.scheduled_job_run', ScheduledJobRun::class);
 
-        // When logging is disabled, still honour enabled/shouldRun but skip DB writes
+        // When logging is disabled, still honour enabled/shouldRun but skip DB writes.
         if (! $logging) {
             if (! $record->enabled) {
                 return;
             }
-            if ($job instanceof ConditionalJob && ! $job->shouldRun()) {
+            if ($job instanceof RunsConditionally && ! $job->shouldRun()) {
                 return;
             }
             $next($job);
@@ -62,21 +64,21 @@ class TaskBridgeMiddleware
 
         Event::dispatch(new JobExecutionStarted($record, $run));
 
-        // Check enabled state
+        // Check enabled state.
         if (! $record->enabled) {
             $this->markSkipped($record, $run, 'Job is disabled');
 
             return;
         }
 
-        // Check ConditionalJob
-        if ($job instanceof ConditionalJob && ! $job->shouldRun()) {
+        // Check RunsConditionally.
+        if ($job instanceof RunsConditionally && ! $job->shouldRun()) {
             $this->markSkipped($record, $run, 'shouldRun() returned false');
 
             return;
         }
 
-        // Count sub-job dispatches
+        // Count sub-job dispatches.
         $dispatchCount = 0;
         $listener = function () use (&$dispatchCount) {
             $dispatchCount++;

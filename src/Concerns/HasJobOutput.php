@@ -5,7 +5,7 @@ namespace CodeTechNL\TaskBridge\Concerns;
 use CodeTechNL\TaskBridge\Support\JobOutputRegistry;
 
 /**
- * Ready-made implementation for jobs that implement ReportsOutput.
+ * Ready-made implementation for jobs that implement ReportsTaskOutput.
  *
  * Call $this->reportOutput([...]) inside handle() with any key/value
  * metadata you want stored in the run log. The infrastructure wraps

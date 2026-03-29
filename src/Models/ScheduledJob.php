@@ -15,7 +15,8 @@ use Illuminate\Support\Str;
  * @property string $class
  * @property string $identifier
  * @property string|null $group
- * @property string $cron_expression
+ * @property string|null $description
+ * @property string|null $cron_expression
  * @property string|null $cron_override
  * @property int|null $retry_maximum_event_age_seconds
  * @property int|null $retry_maximum_retry_attempts
@@ -24,7 +25,7 @@ use Illuminate\Support\Str;
  * @property RunStatus|null $last_status
  * @property Carbon $created_at
  * @property Carbon $updated_at
- * @property-read string $effective_cron
+ * @property-read string|null $effective_cron
  */
 class ScheduledJob extends Model
 {
@@ -37,6 +38,7 @@ class ScheduledJob extends Model
         'identifier',
         'queue_connection',
         'group',
+        'description',
         'cron_expression',
         'cron_override',
         'retry_maximum_event_age_seconds',
@@ -62,7 +64,7 @@ class ScheduledJob extends Model
         );
     }
 
-    public function getEffectiveCronAttribute(): string
+    public function getEffectiveCronAttribute(): ?string
     {
         return $this->cron_override ?? $this->cron_expression;
     }
@@ -75,11 +77,15 @@ class ScheduledJob extends Model
     /**
      * Derive a stable identifier from a fully-qualified class name.
      * E.g. App\Jobs\SendTrialExpiredNotifications → send-trial-expired-notifications
+     *
+     * When taskbridge.name_prefix is set, the identifier is prefixed:
+     * E.g. prefix "acme" → acme-send-trial-expired-notifications
      */
     public static function identifierFromClass(string $class): string
     {
-        $basename = class_basename($class);
+        $identifier = Str::kebab(class_basename($class));
+        $prefix = config('taskbridge.name_prefix');
 
-        return Str::kebab($basename);
+        return $prefix ? Str::kebab($prefix).'-'.$identifier : $identifier;
     }
 }

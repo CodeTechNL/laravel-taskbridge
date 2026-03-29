@@ -9,6 +9,7 @@ use CodeTechNL\TaskBridge\Events\JobExecutionSucceeded;
 use CodeTechNL\TaskBridge\Middleware\TaskBridgeMiddleware;
 use CodeTechNL\TaskBridge\Models\ScheduledJob;
 use CodeTechNL\TaskBridge\Models\ScheduledJobRun;
+use CodeTechNL\TaskBridge\TaskBridge;
 use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleConditionalJob;
 use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleOutputJob;
 use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleScheduledJob;
@@ -17,6 +18,13 @@ use Illuminate\Support\Facades\Event;
 describe('TaskBridgeMiddleware', function () {
     beforeEach(function () {
         $this->middleware = new TaskBridgeMiddleware;
+
+        // Register fixture jobs so the middleware's isRegistered() check passes.
+        app(TaskBridge::class)->register([
+            ExampleScheduledJob::class,
+            ExampleConditionalJob::class,
+            ExampleOutputJob::class,
+        ]);
     });
 
     // ── Success path ───────────────────────────────────────────────────────────

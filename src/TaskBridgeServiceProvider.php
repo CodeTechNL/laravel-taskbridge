@@ -2,7 +2,6 @@
 
 namespace CodeTechNL\TaskBridge;
 
-use CodeTechNL\TaskBridge\Contracts\ScheduledJob as ScheduledJobContract;
 use CodeTechNL\TaskBridge\Drivers\EventBridgeDriver;
 use CodeTechNL\TaskBridge\Enums\RunStatus;
 use CodeTechNL\TaskBridge\Enums\TriggeredBy;
@@ -76,8 +75,8 @@ class TaskBridgeServiceProvider extends ServiceProvider
      * Hook into Laravel's queue events to log scheduler-triggered runs automatically.
      *
      * This fires for every job processed by the queue worker, so no changes are
-     * needed to individual job classes. Only jobs that implement ScheduledJob and
-     * have a record in the database are tracked.
+     * needed to individual job classes. Only jobs that are registered in TaskBridge
+     * and have a record in the database are tracked.
      *
      * Manual runs (via TaskBridge::run()) call handle() directly and are logged
      * separately, so they do not go through these listeners.
@@ -98,7 +97,7 @@ class TaskBridgeServiceProvider extends ServiceProvider
             $payload = $event->job->payload();
             $class = $payload['data']['commandName'] ?? null;
 
-            if (! $class || ! is_a($class, ScheduledJobContract::class, true)) {
+            if (! $class || ! $this->app->make(TaskBridge::class)->isRegistered($class)) {
                 return;
             }
 

@@ -2,14 +2,14 @@
 
 namespace CodeTechNL\TaskBridge\Support;
 
-use CodeTechNL\TaskBridge\Contracts\ScheduledJob;
+use Illuminate\Contracts\Queue\ShouldQueue;
 use Symfony\Component\Finder\Finder;
 
 class JobDiscoverer
 {
     /**
      * Scan the given directories and return every non-abstract class
-     * that implements the ScheduledJob contract.
+     * that implements ShouldQueue (i.e. any standard Laravel queued job).
      *
      * @param  string[]  $paths
      * @return string[]
@@ -39,7 +39,7 @@ class JobDiscoverer
 
                     $reflection = new \ReflectionClass($class);
 
-                    if (! $reflection->isAbstract() && $reflection->implementsInterface(ScheduledJob::class)) {
+                    if (! $reflection->isAbstract() && $reflection->implementsInterface(ShouldQueue::class)) {
                         $classes[] = $class;
                     }
                 } catch (\Throwable) {

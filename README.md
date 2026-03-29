@@ -7,7 +7,7 @@ Laravel's built-in scheduler still works alongside this package. TaskBridge is a
 ## How it works
 
 ```
-Your job class (implements ScheduledJob)
+Your job class (implements ShouldQueue)
         │
         ▼
   TaskBridge::sync()
@@ -58,7 +58,7 @@ php artisan vendor:publish --tag=taskbridge-config
 
 ### 1. IAM execution role
 
-EventBridge Scheduler needs an IAM role to put messages on your SQS queue. This role is **separate** from your application's AWS credentials.
+EventBridge Scheduler needs an IAM role to put messages on your SQS queue. This role is **separate** from your application's AWS credentials — even admin credentials cannot bypass it.
 
 Create the role with an SQS trust policy and `sqs:SendMessage` permission:
 
@@ -89,6 +89,8 @@ aws iam put-role-policy \
   }'
 ```
 
+> **Using CDK?** CDK can create and wire up this role automatically. Pass the generated `role.roleArn` output as `TASKBRIDGE_SCHEDULER_ROLE_ARN`.
+
 ### 2. EventBridge schedule group
 
 Create a schedule group (or use the default `default` group):
@@ -109,17 +111,16 @@ TASKBRIDGE_SCHEDULE_PREFIX=taskbridge
 
 ## Creating a scheduled job
 
-A scheduled job is a standard Laravel `ShouldQueue` job that also implements the `ScheduledJob` contract:
+Any standard Laravel `ShouldQueue` job can be used with TaskBridge. No extra interface required:
 
 ```php
-use CodeTechNL\TaskBridge\Contracts\ScheduledJob;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
-class SendDailyReport implements ScheduledJob, ShouldQueue
+class SendDailyReport implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -135,60 +136,80 @@ class SendDailyReport implements ScheduledJob, ShouldQueue
 }
 ```
 
-## Optional interfaces
+### `cronExpression()` is optional
 
-### LabeledJob — custom display name
+You do not need to add `cronExpression()` to the job class. If omitted, the cron must be set manually when creating the job record in the UI. This is useful when the schedule differs per environment.
 
 ```php
-use CodeTechNL\TaskBridge\Contracts\LabeledJob;
+class SendDailyReport implements ShouldQueue
+{
+    // No cronExpression() — cron is set in the UI per environment.
 
-class SendDailyReport implements ScheduledJob, LabeledJob, ShouldQueue
+    public function handle(): void { ... }
+}
+```
+
+## Optional interfaces
+
+All optional interfaces follow Laravel's naming conventions and are self-describing.
+
+### `HasCustomLabel` — display name
+
+Without this interface, TaskBridge auto-derives a readable label from the class name:
+`SendDailyReport` → `"Send daily report"`.
+
+```php
+use CodeTechNL\TaskBridge\Contracts\HasCustomLabel;
+
+class SendDailyReport implements HasCustomLabel, ShouldQueue
 {
     public function taskLabel(): string
     {
-        return 'Send Daily Report';
+        return 'Daily Report — Finance';
     }
-    // ...
 }
 ```
 
-### GroupedJob — group jobs in the UI
+### `HasGroup` — group in the UI
+
+Without this interface, TaskBridge auto-detects the group from the job's folder:
+`App\Jobs\Reporting\SendDailyReport` → group `"Reporting"`.
 
 ```php
-use CodeTechNL\TaskBridge\Contracts\GroupedJob;
+use CodeTechNL\TaskBridge\Contracts\HasGroup;
 
-class SendDailyReport implements ScheduledJob, GroupedJob, ShouldQueue
+class SendDailyReport implements HasGroup, ShouldQueue
 {
     public function group(): string
     {
-        return 'Reporting';
+        return 'Reporting'; // Overrides the folder-based detection.
     }
-    // ...
 }
 ```
 
-### ConditionalJob — runtime skip condition
+### `RunsConditionally` — runtime skip condition
 
 ```php
-use CodeTechNL\TaskBridge\Contracts\ConditionalJob;
+use CodeTechNL\TaskBridge\Contracts\RunsConditionally;
 
-class SendDailyReport implements ScheduledJob, ConditionalJob, ShouldQueue
+class SendDailyReport implements RunsConditionally, ShouldQueue
 {
     public function shouldRun(): bool
     {
         return ! app()->isMaintenanceMode();
     }
-    // ...
 }
 ```
 
-### ReportsOutput — log structured output
+Return `false` to skip execution. The run is recorded as `Skipped` in the history.
+
+### `ReportsTaskOutput` — log structured output
 
 ```php
 use CodeTechNL\TaskBridge\Concerns\HasJobOutput;
-use CodeTechNL\TaskBridge\Contracts\ReportsOutput;
+use CodeTechNL\TaskBridge\Contracts\ReportsTaskOutput;
 
-class ImportProducts implements ScheduledJob, ReportsOutput, ShouldQueue
+class ImportProducts implements ReportsTaskOutput, ShouldQueue
 {
     use HasJobOutput;
 
@@ -211,7 +232,7 @@ The metadata is stored as a `success` `JobOutput` in the run log. On failure, Ta
 
 ## Job discovery
 
-By default, TaskBridge scans `app/Jobs` for classes implementing `ScheduledJob`:
+By default, TaskBridge scans `app/Jobs` for any `ShouldQueue` job:
 
 ```php
 // config/taskbridge.php
@@ -219,6 +240,8 @@ By default, TaskBridge scans `app/Jobs` for classes implementing `ScheduledJob`:
     app_path('Jobs'),
 ],
 ```
+
+Subdirectories are scanned recursively. Jobs in `app/Jobs/Reporting/` are automatically grouped under `"Reporting"` unless they implement `HasGroup`.
 
 To scan additional directories or register jobs from vendor packages manually:
 
@@ -231,6 +254,21 @@ To scan additional directories or register jobs from vendor packages manually:
 'jobs' => [
     \Vendor\Package\Jobs\SomeScheduledJob::class,
 ],
+```
+
+## Task name prefix
+
+Job identifiers are prefixed to avoid collisions across environments. The default is the slugified `APP_ENV` value:
+
+```
+APP_ENV=production       → identifier: production-send-daily-report
+APP_ENV=staging          → identifier: staging-send-daily-report
+```
+
+Override via `TASKBRIDGE_NAME_PREFIX` or set to `null` to disable:
+
+```dotenv
+TASKBRIDGE_NAME_PREFIX=myapp
 ```
 
 ## Syncing to EventBridge
@@ -266,12 +304,14 @@ TaskBridge::disable(SendDailyReport::class); // disables + removes from EventBri
 
 ## Cron override
 
-Temporarily override the cron expression without editing the job class:
+Override the cron expression without editing the job class — useful for environment-specific schedules:
 
 ```php
 TaskBridge::overrideCron(SendDailyReport::class, '*/15 * * * *');
-TaskBridge::resetCron(SendDailyReport::class); // restore to cronExpression()
+TaskBridge::resetCron(SendDailyReport::class); // restore original
 ```
+
+Both 5-part standard cron (`minute hour dom month dow`) and 6-part AWS format (`minute hour dom month dow year`) are accepted.
 
 ## Configuration reference
 
@@ -284,6 +324,9 @@ return [
         'scheduled_job'     => \CodeTechNL\TaskBridge\Models\ScheduledJob::class,
         'scheduled_job_run' => \CodeTechNL\TaskBridge\Models\ScheduledJobRun::class,
     ],
+
+    // Prefix applied to all job identifiers. Defaults to slugified APP_ENV.
+    'name_prefix' => env('TASKBRIDGE_NAME_PREFIX', Str::slug(env('APP_ENV', 'local'))),
 
     'eventbridge' => [
         'region'         => env('AWS_DEFAULT_REGION', 'eu-west-1'),
@@ -337,8 +380,8 @@ Listen to these events to add custom behaviour:
 use CodeTechNL\TaskBridge\Events\JobExecutionFailed;
 
 Event::listen(JobExecutionFailed::class, function (JobExecutionFailed $event) {
-    // $event->job   — ScheduledJob model
-    // $event->run   — ScheduledJobRun model
+    // $event->job       — ScheduledJob model
+    // $event->run       — ScheduledJobRun model
     // $event->exception — Throwable
     Notification::send(...);
 });
