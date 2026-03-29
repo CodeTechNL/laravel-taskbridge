@@ -4,6 +4,7 @@ namespace CodeTechNL\TaskBridge\Drivers;
 
 use Aws\Scheduler\SchedulerClient;
 use CodeTechNL\TaskBridge\Support\CronTranslator;
+use CodeTechNL\TaskBridge\Support\JobInspector;
 use CodeTechNL\TaskBridge\Support\ScheduledJobCollection;
 use CodeTechNL\TaskBridge\Support\SyncResult;
 use Illuminate\Support\Facades\Log;
@@ -203,7 +204,7 @@ class EventBridgeDriver
      */
     private function buildJobPayload(string $class): array
     {
-        $job = new $class;
+        $job = JobInspector::make($class);
 
         return [
             'uuid' => (string) Str::uuid(),

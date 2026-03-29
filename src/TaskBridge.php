@@ -8,6 +8,7 @@ use CodeTechNL\TaskBridge\Enums\RunStatus;
 use CodeTechNL\TaskBridge\Enums\TriggeredBy;
 use CodeTechNL\TaskBridge\Models\ScheduledJob;
 use CodeTechNL\TaskBridge\Models\ScheduledJobRun;
+use CodeTechNL\TaskBridge\Support\JobInspector;
 use CodeTechNL\TaskBridge\Support\JobOutputRegistry;
 use CodeTechNL\TaskBridge\Support\ScheduledJobCollection;
 use CodeTechNL\TaskBridge\Support\SyncResult;
@@ -103,7 +104,7 @@ class TaskBridge
             throw new \InvalidArgumentException("Class not found: {$jobClass}");
         }
 
-        $instance = new $jobClass;
+        $instance = JobInspector::make($jobClass);
 
         // Check enabled/shouldRun unless forced
         if (! $force) {
