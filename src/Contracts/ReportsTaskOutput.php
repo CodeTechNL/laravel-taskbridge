@@ -25,9 +25,20 @@ namespace CodeTechNL\TaskBridge\Contracts;
 interface ReportsTaskOutput
 {
     /**
-     * Store structured metadata to be written to the run log on completion.
+     * Merge metadata into the accumulated output bag.
+     *
+     * Safe to call multiple times — values for the same key are stacked
+     * into an array rather than overwritten.
      *
      * @param  array<string, mixed>  $metadata
      */
     public function reportOutput(array $metadata): void;
+
+    /**
+     * Read the accumulated output bag without clearing it.
+     *
+     * With no arguments returns the full bag. With a key returns the value
+     * for that key, or $default when absent.
+     */
+    public function getOutputFromReport(?string $key = null, mixed $default = null): mixed;
 }

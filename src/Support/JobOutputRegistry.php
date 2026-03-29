@@ -12,9 +12,56 @@ class JobOutputRegistry
 {
     private static array $bag = [];
 
-    public static function store(string $class, array $metadata): void
+    /**
+     * Clear all accumulated state. Use in test tearDown / beforeEach.
+     */
+    public static function flush(): void
     {
-        self::$bag[$class] = $metadata;
+        self::$bag = [];
+    }
+
+    /**
+     * Merge $metadata into the accumulated bag for this class.
+     *
+     * Keys that do not exist yet are set as-is. Keys that already exist are
+     * stacked: two scalars become a two-element array, a scalar appended to
+     * an existing array, or two arrays merged together.
+     *
+     * This means reportOutput() can be called multiple times inside handle()
+     * and all values are preserved rather than the last call winning.
+     */
+    public static function accumulate(string $class, array $metadata): void
+    {
+        $existing = self::$bag[$class] ?? [];
+
+        foreach ($metadata as $key => $value) {
+            if (! array_key_exists($key, $existing)) {
+                $existing[$key] = $value;
+            } elseif (is_array($existing[$key])) {
+                $existing[$key] = is_array($value)
+                    ? array_merge($existing[$key], $value)
+                    : [...$existing[$key], $value];
+            } else {
+                $existing[$key] = is_array($value)
+                    ? [$existing[$key], ...$value]
+                    : [$existing[$key], $value];
+            }
+        }
+
+        self::$bag[$class] = $existing;
+    }
+
+    /**
+     * Read the current accumulated bag without clearing it.
+     *
+     * Used by HasJobOutput::getOutputFromReport() so the job can inspect
+     * what it has reported so far (e.g. to derive a total_count).
+     *
+     * @return array<string, mixed>
+     */
+    public static function peek(string $class): array
+    {
+        return self::$bag[$class] ?? [];
     }
 
     /**

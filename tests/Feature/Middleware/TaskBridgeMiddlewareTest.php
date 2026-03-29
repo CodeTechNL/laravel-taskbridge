@@ -217,8 +217,10 @@ describe('TaskBridgeMiddleware', function () {
         $run = ScheduledJobRun::first();
         expect($run->output)->not->toBeNull();
         expect($run->output['status'])->toBe('success');
-        expect($run->output['metadata']['processed'])->toBe(42);
-        expect($run->output['metadata']['skipped'])->toBe(3);
+        // reportOutput() was called once per item — values are stacked into arrays.
+        expect($run->output['metadata']['processed'])->toHaveCount(42);
+        expect($run->output['metadata']['skipped'])->toHaveCount(3);
+        expect($run->output['metadata']['total'])->toBe(42);
     });
 
     it('stores null output when job does not report output', function () {
