@@ -21,9 +21,17 @@ If `vendor/` is missing, run `composer install` first.
 
 **This package is an addition, not a replacement.** It works alongside Laravel's built-in scheduler. Never describe or document it as a replacement for `Kernel::schedule()`.
 
-**`ScheduledJob` interface does not exist.** Any `ShouldQueue` job can be used with TaskBridge. Discovery uses `ShouldQueue`, the middleware checks `TaskBridge::isRegistered()`. Never re-introduce a `ScheduledJob` interface.
+**`ScheduledJob` interface does not exist.** Any `ShouldQueue` job can be used with TaskBridge. Discovery uses `ShouldQueue` (interface mode) or `#[SchedulableJob]` (attribute mode), the middleware checks `TaskBridge::isRegistered()`. Never re-introduce a `ScheduledJob` interface.
 
-**Interface names are final.** The four optional interfaces are: `RunsConditionally`, `HasGroup`, `HasCustomLabel`, `ReportsTaskOutput`. Do not use or reference the old names (`ConditionalJob`, `GroupedJob`, `LabeledJob`, `ReportsOutput`).
+**Interface names are final.** The five optional interfaces are: `RunsConditionally`, `HasGroup`, `HasCustomLabel`, `ReportsTaskOutput`, `HasPredefinedCronExpression`. Do not use or reference the old names (`ConditionalJob`, `GroupedJob`, `LabeledJob`, `ReportsOutput`).
+
+**`#[SchedulableJob]` attribute takes precedence over interfaces for label, group, and cron.** Priority order: attribute → interface → auto-derived default. When both are present the attribute wins. Omitting an attribute parameter falls through to the interface, then to the default. Never change this priority order.
+
+**Discovery config lives under `auto_discovery`, not at the root.** The old flat keys `discovery_mode` and `discover` no longer exist. Always use:
+```php
+config('taskbridge.auto_discovery.mode')   // 'interface' | 'attribute' | null
+config('taskbridge.auto_discovery.paths')  // array of directory paths
+```
 
 **`ReportsTaskOutput` requires `reportOutput()`.** The interface declares `reportOutput(array $metadata): void` — it is no longer a marker. The `HasJobOutput` trait satisfies it:
 ```php
@@ -33,7 +41,7 @@ class ImportProducts implements ReportsTaskOutput, ShouldQueue
 }
 ```
 
-**`cronExpression()` is not part of any interface.** It is an optional method checked via `method_exists()`. Jobs without it require the cron to be set in the UI. Never add it to an interface.
+**`cronExpression()` is declared by `HasPredefinedCronExpression`.** Implementing the interface is optional — jobs without it require the cron to be set in the UI. The Filament resource checks `$instance instanceof HasPredefinedCronExpression` (not `method_exists`).
 
 **Always use enum cases in queries** — `status` and `triggered_by` are Eloquent-cast enums:
 ```php

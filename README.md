@@ -156,6 +156,15 @@ class SendDailyReport implements ShouldQueue
 
 You do not need to add `cronExpression()` to the job class. If omitted, the cron must be set manually when creating the job record in the UI. This is useful when the schedule differs per environment.
 
+Alternatively, set the cron directly on the `#[SchedulableJob]` attribute:
+
+```php
+#[SchedulableJob(cron: '0 8 * * *')]
+class SendDailyReport implements ShouldQueue { ... }
+```
+
+The priority order is: `#[SchedulableJob(cron:)]` → `HasPredefinedCronExpression::cronExpression()` → set manually in the UI.
+
 ```php
 class SendDailyReport implements ShouldQueue
 {
@@ -224,9 +233,11 @@ The distinction matters in the UI: required nullable fields are validated as req
 
 All optional interfaces follow Laravel's naming conventions and are self-describing.
 
+> **Tip:** When using `#[SchedulableJob]` you can set `name`, `group`, and `cron` directly on the attribute instead of implementing the corresponding interface. The attribute takes precedence when both are present.
+
 ### `HasCustomLabel` — display name
 
-Without this interface, TaskBridge auto-derives a readable label from the class name:
+Without this interface (or the `name` attribute parameter), TaskBridge auto-derives a readable label from the class name:
 `SendDailyReport` → `"Send daily report"`.
 
 ```php
@@ -243,7 +254,7 @@ class SendDailyReport implements HasCustomLabel, ShouldQueue
 
 ### `HasGroup` — group in the UI
 
-Without this interface, TaskBridge auto-detects the group from the job's folder:
+Without this interface (or the `group` attribute parameter), TaskBridge auto-detects the group from the job's folder:
 `App\Jobs\Reporting\SendDailyReport` → group `"Reporting"`.
 
 ```php
@@ -303,29 +314,90 @@ The metadata is stored as a `success` `JobOutput` in the run log. On failure, Ta
 
 ## Job discovery
 
-By default, TaskBridge scans `app/Jobs` for any `ShouldQueue` job:
+TaskBridge supports three ways to register jobs:
+
+### 1. Auto-discovery — interface mode (default)
+
+Scans directories and registers every non-abstract `ShouldQueue` job with a scalar constructor:
 
 ```php
 // config/taskbridge.php
-'discover' => [
-    app_path('Jobs'),
+'auto_discovery' => [
+    'mode'  => 'interface',   // default
+    'paths' => [
+        app_path('Jobs'),
+    ],
 ],
 ```
 
-Subdirectories are scanned recursively. Jobs in `app/Jobs/Reporting/` are automatically grouped under `"Reporting"` unless they implement `HasGroup`.
+Subdirectories are scanned recursively. Jobs in `app/Jobs/Reporting/` are automatically grouped under `"Reporting"` unless they implement `HasGroup` or carry `#[SchedulableJob(group:)]`.
 
-To scan additional directories or register jobs from vendor packages manually:
+### 2. Auto-discovery — attribute mode
+
+Only registers classes that carry the `#[SchedulableJob]` attribute. The `ShouldQueue` check is skipped; the attribute itself is the discovery gate. Useful when you want explicit opt-in instead of registering every queued job in the folder:
 
 ```php
-'discover' => [
-    app_path('Jobs'),
-    app_path('Modules/Billing/Jobs'),
+'auto_discovery' => [
+    'mode'  => 'attribute',
+    'paths' => [
+        app_path('Jobs'),
+    ],
+],
+```
+
+```php
+use CodeTechNL\TaskBridge\Attributes\SchedulableJob;
+
+#[SchedulableJob(name: 'Daily Report', group: 'Reporting', cron: '0 8 * * *')]
+class SendDailyReport implements ShouldQueue
+{
+    // ...
+}
+```
+
+### 3. Manual registration
+
+Disable discovery entirely and list jobs explicitly — useful for jobs from vendor packages or when you want full control:
+
+```php
+'auto_discovery' => [
+    'mode'  => null,   // discovery disabled
+    'paths' => [],
+],
+
+'jobs' => [
+    \App\Jobs\SendDailyReport::class,
+    \Vendor\Package\Jobs\SomeScheduledJob::class,
+],
+```
+
+The `jobs` array is always merged with discovered jobs, regardless of mode. Use it to add individual jobs from outside the scanned paths even when discovery is active:
+
+```php
+'auto_discovery' => [
+    'mode'  => 'interface',
+    'paths' => [app_path('Jobs')],
 ],
 
 'jobs' => [
     \Vendor\Package\Jobs\SomeScheduledJob::class,
 ],
 ```
+
+### `#[SchedulableJob]` attribute
+
+The attribute can carry optional metadata that takes precedence over the equivalent interfaces:
+
+```php
+#[SchedulableJob(
+    name:  'Daily Finance Report',   // overrides HasCustomLabel::taskLabel()
+    group: 'Finance',                // overrides HasGroup::group()
+    cron:  '0 8 * * 1-5',           // overrides HasPredefinedCronExpression::cronExpression()
+)]
+class SendDailyReport implements ShouldQueue { ... }
+```
+
+All three parameters are optional. Omitting them falls back to the corresponding interface, then to auto-derived defaults. You may use `#[SchedulableJob]` with no arguments purely as a discovery marker while keeping existing interface implementations unchanged.
 
 ## Task name prefix
 
@@ -428,8 +500,14 @@ return [
         ],
     ],
 
-    'discover' => [
-        app_path('Jobs'),
+    'auto_discovery' => [
+        // 'interface' — register every ShouldQueue job with a scalar constructor (default)
+        // 'attribute' — register only classes carrying #[SchedulableJob]
+        // null        — disable discovery; use 'jobs' array only
+        'mode'  => env('TASKBRIDGE_DISCOVERY_MODE', 'interface'),
+        'paths' => [
+            app_path('Jobs'),
+        ],
     ],
 
     'jobs' => [],

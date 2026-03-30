@@ -2,6 +2,7 @@
 
 namespace CodeTechNL\TaskBridge\Support;
 
+use CodeTechNL\TaskBridge\Attributes\SchedulableJob;
 use ReflectionClass;
 use ReflectionNamedType;
 use ReflectionParameter;
@@ -61,6 +62,20 @@ class JobInspector
         $constructor = (new ReflectionClass($class))->getConstructor();
 
         return $constructor?->getParameters() ?? [];
+    }
+
+    /**
+     * Return the #[SchedulableJob] attribute instance for a class, or null if not present.
+     */
+    public static function getSchedulableJobAttribute(string $class): ?SchedulableJob
+    {
+        $attributes = (new ReflectionClass($class))->getAttributes(SchedulableJob::class);
+
+        if (empty($attributes)) {
+            return null;
+        }
+
+        return $attributes[0]->newInstance();
     }
 
     /**

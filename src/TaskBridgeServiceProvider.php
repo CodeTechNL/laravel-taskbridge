@@ -64,7 +64,15 @@ class TaskBridgeServiceProvider extends ServiceProvider
 
     private function registerJobsFromConfig(): void
     {
-        $discovered = JobDiscoverer::discover(config('taskbridge.discover', []));
+        $mode = config('taskbridge.auto_discovery.mode', 'interface');
+        $paths = config('taskbridge.auto_discovery.paths', []);
+
+        $discovered = match (true) {
+            $mode === 'attribute' => JobDiscoverer::discoverByAttribute($paths),
+            $mode === 'interface' => JobDiscoverer::discover($paths),
+            default => [], // null / false / unknown — discovery disabled
+        };
+
         $manual = config('taskbridge.jobs', []);
 
         $all = array_unique(array_merge($discovered, $manual));

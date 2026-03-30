@@ -74,20 +74,39 @@ return [
     | Job Discovery
     |--------------------------------------------------------------------------
     |
-    | TaskBridge will scan these directories and automatically register every
-    | class that implements CodeTechNL\TaskBridge\Contracts\ScheduledJob.
+    | TaskBridge will scan these directories and automatically register jobs.
+    | The strategy used to identify which classes to register is controlled
+    | by the discovery_mode option below.
     |
     | You can also manually list additional classes in the 'jobs' array below
     | (e.g. jobs from third-party packages that live outside your app paths).
     |
-    | Classes may optionally implement:
-    |   - LabeledJob     → taskLabel()   human-readable name in the UI
-    |   - GroupedJob     → group()       groups jobs in the Filament dropdown
-    |   - ConditionalJob → shouldRun()   runtime skip condition
+    | discovery_mode options:
+    |
+    |   'interface' (default) — Register every non-abstract class that
+    |               implements Illuminate\Contracts\Queue\ShouldQueue and has
+    |               a simple (scalar-only) constructor. This is the original
+    |               TaskBridge behavior.
+    |
+    |   'attribute' — Register only classes that carry the
+    |               #[SchedulableJob] attribute. The ShouldQueue check is
+    |               skipped; the attribute is the discovery gate. This lets
+    |               you opt individual jobs in explicitly instead of
+    |               registering every queued job in the scanned folders.
+    |               Set discovery_mode to 'attribute' and decorate each job:
+    |
+    |               #[SchedulableJob(name: 'Send Report', group: 'Reporting', cron: '0 6 * * *')]
+    |               class SendReportJob implements ShouldQueue { ... }
+    |
+    |   null / false — Disable automatic discovery entirely. Only jobs listed
+    |               in the 'jobs' array below are registered.
     |
     */
-    'discover' => [
-        app_path('Jobs'),
+    'auto_discovery' => [
+        'mode' => env('TASKBRIDGE_DISCOVERY_MODE', 'interface'),
+        'paths' => [
+            app_path('Jobs'),
+        ],
     ],
 
     /*

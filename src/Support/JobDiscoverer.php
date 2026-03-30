@@ -2,6 +2,7 @@
 
 namespace CodeTechNL\TaskBridge\Support;
 
+use CodeTechNL\TaskBridge\Attributes\SchedulableJob;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Symfony\Component\Finder\Finder;
 
@@ -42,6 +43,58 @@ class JobDiscoverer
                     if (
                         ! $reflection->isAbstract()
                         && $reflection->implementsInterface(ShouldQueue::class)
+                        && JobInspector::hasSimpleConstructor($class)
+                    ) {
+                        $classes[] = $class;
+                    }
+                } catch (\Throwable) {
+                    // Unloadable class — skip silently
+                }
+            }
+        }
+
+        return $classes;
+    }
+
+    /**
+     * Scan the given directories and return every non-abstract class
+     * that carries the #[SchedulableJob] attribute.
+     *
+     * Unlike discover(), this does not require the class to implement ShouldQueue —
+     * the attribute itself is the registration gate. hasSimpleConstructor() is still
+     * enforced so constructor-arg form fields can be generated correctly.
+     *
+     * @param  string[]  $paths
+     * @return string[]
+     */
+    public static function discoverByAttribute(array $paths): array
+    {
+        $classes = [];
+
+        foreach ($paths as $path) {
+            if (! is_dir($path)) {
+                continue;
+            }
+
+            $files = Finder::create()->files()->name('*.php')->in($path);
+
+            foreach ($files as $file) {
+                $class = self::classFromFile($file->getRealPath());
+
+                if (! $class) {
+                    continue;
+                }
+
+                try {
+                    if (! class_exists($class)) {
+                        continue;
+                    }
+
+                    $reflection = new \ReflectionClass($class);
+
+                    if (
+                        ! $reflection->isAbstract()
+                        && ! empty($reflection->getAttributes(SchedulableJob::class))
                         && JobInspector::hasSimpleConstructor($class)
                     ) {
                         $classes[] = $class;
