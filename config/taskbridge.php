@@ -37,11 +37,11 @@ return [
     | Override via TASKBRIDGE_NAME_PREFIX or set to null to disable.
     |
     | ⚠  Identifier length limit: 64 characters
-    |    The full identifier (prefix + class basename) must not exceed 64 characters.
-    |    If it does, TaskBridge automatically replaces the class-name part with its
-    |    MD5 hash. If even prefix + MD5 (32 hex chars) exceeds 64 characters, a
-    |    RuntimeException is thrown and the prefix must be shortened to at most
-    |    31 characters.
+    |    The identifier IS the AWS EventBridge Scheduler schedule name, so it must
+    |    not exceed 64 characters. If it does, TaskBridge automatically replaces
+    |    the class-name part with its MD5 hash. If even prefix + MD5 (32 hex chars)
+    |    exceeds 64 characters, a RuntimeException is thrown and the prefix must be
+    |    shortened to at most 31 characters.
     |
     */
     'name_prefix' => env('TASKBRIDGE_NAME_PREFIX', Str::slug(env('APP_ENV', 'local'))),
@@ -69,7 +69,6 @@ return [
     */
     'eventbridge' => [
         'region' => env('AWS_DEFAULT_REGION', 'eu-west-1'),
-        'prefix' => env('TASKBRIDGE_SCHEDULE_PREFIX', 'taskbridge'),
         'role_arn' => env('TASKBRIDGE_SCHEDULER_ROLE_ARN'),
         'schedule_group' => env('TASKBRIDGE_SCHEDULE_GROUP', 'default'),
         'retry_policy' => [

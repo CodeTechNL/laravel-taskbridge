@@ -134,7 +134,6 @@ AWS_DEFAULT_REGION=eu-west-1
 
 TASKBRIDGE_SCHEDULER_ROLE_ARN=arn:aws:iam::123456789012:role/taskbridge-scheduler-role
 TASKBRIDGE_SCHEDULE_GROUP=taskbridge
-TASKBRIDGE_SCHEDULE_PREFIX=taskbridge
 ```
 
 ## Creating a scheduled job
@@ -582,7 +581,6 @@ return [
 
     'eventbridge' => [
         'region'         => env('AWS_DEFAULT_REGION', 'eu-west-1'),
-        'prefix'         => env('TASKBRIDGE_SCHEDULE_PREFIX', 'taskbridge'),
         'role_arn'       => env('TASKBRIDGE_SCHEDULER_ROLE_ARN'),
         'schedule_group' => env('TASKBRIDGE_SCHEDULE_GROUP', 'default'),
         'retry_policy'   => [

@@ -2,6 +2,7 @@
 
 namespace CodeTechNL\TaskBridge\Drivers;
 
+use Aws\Exception\AwsException;
 use Aws\Scheduler\SchedulerClient;
 use Carbon\Carbon;
 use CodeTechNL\TaskBridge\Support\CronTranslator;
@@ -26,8 +27,6 @@ class EventBridgeDriver
 {
     private string $region;
 
-    private string $prefix;
-
     private string $scheduleGroup;
 
     private ?string $roleArn;
@@ -44,7 +43,6 @@ class EventBridgeDriver
     public function __construct(array $config)
     {
         $this->region = $config['region'] ?? 'eu-west-1';
-        $this->prefix = $config['prefix'] ?? 'taskbridge';
         $this->scheduleGroup = $config['schedule_group'] ?? 'default';
         $this->roleArn = $config['role_arn'] ?? null;
         $this->timezone = config('app.timezone', 'UTC');
@@ -93,14 +91,7 @@ class EventBridgeDriver
 
     public function remove(string $identifier): void
     {
-        // One-time schedule records store the full schedule name (including the prefix)
-        // as their identifier. Recurring job identifiers do not include the prefix.
-        // Detect which case we have to avoid double-prefixing.
-        $scheduleName = str_starts_with($identifier, $this->prefix.'-')
-            ? $identifier
-            : $this->scheduleName($identifier);
-
-        $this->deleteSchedule($this->getClient(), $scheduleName);
+        $this->deleteSchedule($this->getClient(), $identifier);
     }
 
     public function list(): array
@@ -123,7 +114,7 @@ class EventBridgeDriver
     public function scheduleOnce(mixed $job, Carbon $at, array $arguments = []): string
     {
         $suffix = strtolower(Str::random(8));
-        $scheduleName = "{$this->prefix}-once-{$job->identifier}-{$suffix}";
+        $scheduleName = "once-{$job->identifier}-{$suffix}";
         $atExpression = 'at('.$at->clone()->utc()->format('Y-m-d\TH:i:s').')';
 
         $client = $this->getClient();
@@ -150,7 +141,6 @@ class EventBridgeDriver
         try {
             $result = $client->listSchedules([
                 'GroupName' => $this->scheduleGroup,
-                'NamePrefix' => $this->prefix.'-',
                 'MaxResults' => 100,
             ]);
 
@@ -174,7 +164,7 @@ class EventBridgeDriver
     {
         try {
             $client->createSchedule($this->buildSchedulePayload($job, $scheduleName, $cronExpression, $job->constructor_arguments ?? []));
-        } catch (\Aws\Exception\AwsException $e) {
+        } catch (AwsException $e) {
             if ($e->getAwsErrorCode() === 'ConflictException') {
                 // Schedule already exists (e.g. listing was paginated and missed it) — update instead.
                 $this->updateSchedule($client, $job, $scheduleName, $cronExpression);
@@ -252,7 +242,7 @@ class EventBridgeDriver
             'GroupName' => $this->scheduleGroup,
             'ScheduleExpression' => $cronExpression,
             // at() expressions are always UTC — only cron/rate need a timezone.
-            ...(!str_starts_with($cronExpression, 'at(') ? ['ScheduleExpressionTimezone' => $this->timezone] : []),
+            ...(! str_starts_with($cronExpression, 'at(') ? ['ScheduleExpressionTimezone' => $this->timezone] : []),
             'FlexibleTimeWindow' => ['Mode' => 'OFF'],
             'State' => 'ENABLED',
             'Description' => "TaskBridge: {$job->class}",
@@ -336,12 +326,12 @@ class EventBridgeDriver
 
     private function scheduleName(string $identifier): string
     {
-        return "{$this->prefix}-{$identifier}";
+        return $identifier;
     }
 
     private function identifierFromScheduleName(string $scheduleName): string
     {
-        return substr($scheduleName, strlen("{$this->prefix}-"));
+        return $scheduleName;
     }
 
     /**

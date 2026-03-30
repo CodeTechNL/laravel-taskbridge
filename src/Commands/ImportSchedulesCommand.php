@@ -70,7 +70,14 @@ class ImportSchedulesCommand extends Command
                 continue;
             }
 
-            $identifier = $jobModel::identifierFromClass($class);
+            try {
+                $identifier = $jobModel::identifierFromClass($class);
+            } catch (\RuntimeException $e) {
+                $this->components->error("[{$label}] {$e->getMessage()}");
+                $failed++;
+
+                continue;
+            }
 
             $jobModel::updateOrCreate(
                 ['identifier' => $identifier],

@@ -197,12 +197,12 @@ Fields: `created int`, `updated int`, `removed int`, `unchanged int`. Immutable 
 
 Wraps the AWS SDK `SchedulerClient`. All EventBridge communication happens here.
 
-- `sync(ScheduledJobCollection): SyncResult` — calls `listSchedules` to find existing schedules; calls `updateSchedule` for matches, `createSchedule` for new ones; removes orphaned schedules. Always upserts — never diffs by `ScheduleExpression` (not returned by `listSchedules`).
-- `remove(string $identifier)` — deletes the prefixed schedule
+- `sync(ScheduledJobCollection): SyncResult` — calls `listSchedules` (full schedule group, no name prefix filter) to find existing schedules; calls `updateSchedule` for matches, `createSchedule` for new ones; removes orphaned schedules. Always upserts — never diffs by `ScheduleExpression` (not returned by `listSchedules`).
+- `remove(string $identifier)` — deletes the schedule whose name equals the stored identifier directly. No prefix wrapping or double-prefix detection needed.
 - `buildSchedulePayload(ScheduledJob): array` — full request body: SQS target, retry policy, IAM role, JSON-encoded Laravel job payload. Never include `SqsParameters` — only valid for FIFO queues.
-- `scheduleOnce(string $class, Carbon $at, array $arguments)` — creates a one-time schedule using an `at()` expression in UTC. The EventBridge schedule has `ActionAfterCompletion: DELETE`.
+- `scheduleOnce(string $class, Carbon $at, array $arguments)` — creates a one-time schedule using an `at()` expression in UTC. The schedule name is `once-{identifier}-{suffix}`. The EventBridge schedule has `ActionAfterCompletion: DELETE`.
 - `resolveQueueUrl(?string $connection)` — reads `queue.connections.{connection}.queue` from Laravel config
-- Schedule names: `{prefix}-{identifier}` (e.g. `taskbridge-send-invoice`)
+- Schedule names equal the identifier directly (e.g. `production-send-invoice`). No additional driver-level prefix is applied.
 
 **Timezone handling:**
 - `cron()` and `rate()` expressions include `ScheduleExpressionTimezone` set to `config('app.timezone')`.

@@ -15,6 +15,4 @@ namespace CodeTechNL\TaskBridge\Contracts;
  *       // This job will not appear in the "Create task" job selector.
  *   }
  */
-interface HidesFromTaskCreation
-{
-}
+interface HidesFromTaskCreation {}

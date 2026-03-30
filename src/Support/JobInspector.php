@@ -99,7 +99,7 @@ class JobInspector
      *
      * Used by the job picker modal to explain why a job cannot be scheduled from the UI.
      *
-     * @return string[]  e.g. ['$repo: UserRepository', '$handler: EventHandler']
+     * @return string[] e.g. ['$repo: UserRepository', '$handler: EventHandler']
      */
     public static function getIncompatibleConstructorParams(string $class): array
     {
@@ -107,7 +107,7 @@ class JobInspector
 
         foreach (self::getConstructorParameters($class) as $param) {
             if (! self::isSimpleParameter($param)) {
-                $type     = $param->getType();
+                $type = $param->getType();
                 $typeName = $type instanceof ReflectionNamedType
                     ? $type->getName()
                     : (string) $type;
