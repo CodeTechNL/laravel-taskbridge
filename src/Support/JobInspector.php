@@ -95,6 +95,31 @@ class JobInspector
     }
 
     /**
+     * Return the names and types of constructor parameters that are NOT simple.
+     *
+     * Used by the job picker modal to explain why a job cannot be scheduled from the UI.
+     *
+     * @return string[]  e.g. ['$repo: UserRepository', '$handler: EventHandler']
+     */
+    public static function getIncompatibleConstructorParams(string $class): array
+    {
+        $incompatible = [];
+
+        foreach (self::getConstructorParameters($class) as $param) {
+            if (! self::isSimpleParameter($param)) {
+                $type     = $param->getType();
+                $typeName = $type instanceof ReflectionNamedType
+                    ? $type->getName()
+                    : (string) $type;
+
+                $incompatible[] = '$'.$param->getName().': '.$typeName;
+            }
+        }
+
+        return $incompatible;
+    }
+
+    /**
      * Return true when a single constructor parameter is scalar or untyped.
      */
     public static function isSimpleParameter(ReflectionParameter $param): bool

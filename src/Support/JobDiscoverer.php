@@ -109,6 +109,104 @@ class JobDiscoverer
     }
 
     /**
+     * Scan the given directories and return every non-abstract class
+     * that implements ShouldQueue, WITHOUT filtering by hasSimpleConstructor.
+     *
+     * Used by the job picker modal to show incompatible jobs alongside compatible ones.
+     *
+     * @param  string[]  $paths
+     * @return string[]
+     */
+    public static function discoverAll(array $paths): array
+    {
+        $classes = [];
+
+        foreach ($paths as $path) {
+            if (! is_dir($path)) {
+                continue;
+            }
+
+            $files = Finder::create()->files()->name('*.php')->in($path);
+
+            foreach ($files as $file) {
+                $class = self::classFromFile($file->getRealPath());
+
+                if (! $class) {
+                    continue;
+                }
+
+                try {
+                    if (! class_exists($class)) {
+                        continue;
+                    }
+
+                    $reflection = new \ReflectionClass($class);
+
+                    if (
+                        ! $reflection->isAbstract()
+                        && $reflection->implementsInterface(ShouldQueue::class)
+                    ) {
+                        $classes[] = $class;
+                    }
+                } catch (\Throwable) {
+                    // Unloadable class — skip silently
+                }
+            }
+        }
+
+        return $classes;
+    }
+
+    /**
+     * Scan the given directories and return every non-abstract class
+     * that carries the #[SchedulableJob] attribute, WITHOUT filtering by hasSimpleConstructor.
+     *
+     * Used by the job picker modal to show incompatible jobs alongside compatible ones.
+     *
+     * @param  string[]  $paths
+     * @return string[]
+     */
+    public static function discoverAllByAttribute(array $paths): array
+    {
+        $classes = [];
+
+        foreach ($paths as $path) {
+            if (! is_dir($path)) {
+                continue;
+            }
+
+            $files = Finder::create()->files()->name('*.php')->in($path);
+
+            foreach ($files as $file) {
+                $class = self::classFromFile($file->getRealPath());
+
+                if (! $class) {
+                    continue;
+                }
+
+                try {
+                    if (! class_exists($class)) {
+                        continue;
+                    }
+
+                    $reflection = new \ReflectionClass($class);
+
+                    if (
+                        ! $reflection->isAbstract()
+                        && ! empty($reflection->getAttributes(SchedulableJob::class))
+                    ) {
+                        $classes[] = $class;
+                    }
+                } catch (\Throwable) {
+                    // Unloadable class — skip silently
+                }
+            }
+        }
+
+        return $classes;
+    }
+
+    /**
      * Extract the fully-qualified class name from a PHP file by parsing
      * its namespace and class declarations.
      */

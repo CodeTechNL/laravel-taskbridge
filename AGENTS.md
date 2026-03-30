@@ -27,6 +27,10 @@ If `vendor/` is missing, run `composer install` first.
 
 **`#[SchedulableJob]` attribute takes precedence over interfaces for label, group, and cron.** Priority order: attribute → interface → auto-derived default. When both are present the attribute wins. Omitting an attribute parameter falls through to the interface, then to the default. Never change this priority order.
 
+**`JobDiscoverer` has both filtered and unfiltered variants.** `discover()` and `discoverByAttribute()` apply `hasSimpleConstructor()` and are used for registration. `discoverAll()` and `discoverAllByAttribute()` skip that filter and are used by the job picker modal to surface incompatible jobs with a warning. Never add the constructor filter to the `discoverAll` variants — their entire purpose is to return everything including incompatible jobs.
+
+**`JobInspector::getIncompatibleConstructorParams()` describes incompatible params.** Returns an array of human-readable strings like `['$repo: UserRepository']`. Used only for display (the job picker warning). Never use it to gate registration or execution.
+
 **Discovery config lives under `auto_discovery`, not at the root.** The old flat keys `discovery_mode` and `discover` no longer exist. Always use:
 ```php
 config('taskbridge.auto_discovery.mode')   // 'interface' | 'attribute' | null

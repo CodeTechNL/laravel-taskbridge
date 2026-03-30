@@ -1,9 +1,12 @@
 <?php
 
+use CodeTechNL\TaskBridge\Attributes\SchedulableJob;
 use CodeTechNL\TaskBridge\Contracts\HasCustomLabel;
 use CodeTechNL\TaskBridge\Contracts\HasGroup;
 use CodeTechNL\TaskBridge\Contracts\RunsConditionally;
 use CodeTechNL\TaskBridge\Support\JobInspector;
+use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleAttributeJob;
+use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleAttributeMarkerJob;
 use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleConditionalJob;
 use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleJobWithConstructorArgs;
 use CodeTechNL\TaskBridge\Tests\Fixtures\ExampleScheduledJob;
@@ -92,6 +95,47 @@ describe('JobInspector', function () {
                 ExampleJobWithConstructorArgs::class,
                 ShouldQueue::class
             ))->not->toThrow(TypeError::class);
+        });
+    });
+
+    // ── getSchedulableJobAttribute() ───────────────────────────────────────────
+
+    describe('getSchedulableJobAttribute()', function () {
+        it('returns null for a class without the attribute', function () {
+            expect(JobInspector::getSchedulableJobAttribute(ExampleScheduledJob::class))
+                ->toBeNull();
+        });
+
+        it('returns a SchedulableJob instance for a class with the attribute', function () {
+            expect(JobInspector::getSchedulableJobAttribute(ExampleAttributeJob::class))
+                ->toBeInstanceOf(SchedulableJob::class);
+        });
+
+        it('reads the name from the attribute', function () {
+            $attr = JobInspector::getSchedulableJobAttribute(ExampleAttributeJob::class);
+
+            expect($attr->name)->toBe('Attribute Job');
+        });
+
+        it('reads the group from the attribute', function () {
+            $attr = JobInspector::getSchedulableJobAttribute(ExampleAttributeJob::class);
+
+            expect($attr->group)->toBe('Attribute Group');
+        });
+
+        it('reads the cron from the attribute', function () {
+            $attr = JobInspector::getSchedulableJobAttribute(ExampleAttributeJob::class);
+
+            expect($attr->cron)->toBe('0 5 * * *');
+        });
+
+        it('returns an instance with all null properties for a bare marker attribute', function () {
+            $attr = JobInspector::getSchedulableJobAttribute(ExampleAttributeMarkerJob::class);
+
+            expect($attr)->toBeInstanceOf(SchedulableJob::class)
+                ->and($attr->name)->toBeNull()
+                ->and($attr->group)->toBeNull()
+                ->and($attr->cron)->toBeNull();
         });
     });
 

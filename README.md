@@ -197,7 +197,7 @@ class GenerateReport implements ShouldQueue
 
 The argument values are **baked into the serialized SQS payload** at the time the EventBridge schedule is created (or at the time a one-time schedule is set up). This means the job is reconstructed with the exact values you configured when the queue worker processes it — the arguments survive the full EventBridge → SQS → queue worker round-trip.
 
-Jobs whose constructors require non-scalar arguments (e.g. Eloquent models, service objects) are **excluded from discovery** and will not appear in the UI. This is intentional — those values cannot be serialized into a static EventBridge payload.
+Jobs whose constructors require non-scalar arguments (e.g. Eloquent models, service objects) are **excluded from registration** — those values cannot be serialized into a static EventBridge payload. They are still surfaced in the Filament job picker as non-selectable cards with an explanation of which parameters are incompatible.
 
 > **PHP constructor rule:** Required parameters must come before optional ones. A parameter is optional only when it has a declared default value and all parameters after it also have default values. Violating this order causes PHP to silently strip the default value, making the parameter required.
 
