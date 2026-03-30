@@ -65,7 +65,7 @@ return [
         'prefix' => env('TASKBRIDGE_SCHEDULE_PREFIX', 'taskbridge'),
         'role_arn' => env('TASKBRIDGE_SCHEDULER_ROLE_ARN'),
         'schedule_group' => env('TASKBRIDGE_SCHEDULE_GROUP', 'default'),
-'retry_policy' => [
+        'retry_policy' => [
             'maximum_event_age_seconds' => env('TASKBRIDGE_RETRY_MAX_AGE_SECONDS', 86400),
             'maximum_retry_attempts' => env('TASKBRIDGE_RETRY_MAX_ATTEMPTS', 185),
         ],
@@ -132,6 +132,32 @@ return [
         // Dispatches a JobMissed event for jobs that haven't run within twice their cron interval.
         // Requires taskbridge.monitoring.notify_on_miss to be true to take effect.
         // CheckMissedJobs::class,
+    ],
+
+    /*
+    |--------------------------------------------------------------------------
+    | Predefined Schedules
+    |--------------------------------------------------------------------------
+    |
+    | Map job classes to cron expressions. Running `php artisan taskbridge:import-schedules`
+    | will validate each entry and upsert it into the database as a recurring schedule.
+    | Invalid entries are skipped and reported; the rest are still imported.
+    |
+    | Each entry must use the array format with 'cron' and 'arguments' keys.
+    | Use an empty array for jobs with no constructor arguments.
+    |
+    |   \App\Jobs\CleanupJob::class => [
+    |       'cron'      => '0 3 * * *',
+    |       'arguments' => [],
+    |   ],
+    |   \App\Jobs\SendReportJob::class => [
+    |       'cron'      => '0 9 * * 1',
+    |       'arguments' => ['monthly', 500],
+    |   ],
+    |
+    */
+    'schedules' => [
+        // \App\Jobs\YourJob::class => ['cron' => '* * * * *', 'arguments' => []],
     ],
 
     /*

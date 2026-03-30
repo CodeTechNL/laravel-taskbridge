@@ -17,6 +17,10 @@ return new class extends Migration
     public function down(): void
     {
         Schema::table('taskbridge_jobs', function (Blueprint $table) {
+            $table->dropUnique('taskbridge_jobs_run_once_schedule_name_unique');
+        });
+
+        Schema::table('taskbridge_jobs', function (Blueprint $table) {
             $table->dropColumn(['run_once_at', 'run_once_schedule_name']);
         });
     }

@@ -2,6 +2,7 @@
 
 namespace CodeTechNL\TaskBridge;
 
+use CodeTechNL\TaskBridge\Commands\ImportSchedulesCommand;
 use CodeTechNL\TaskBridge\Drivers\EventBridgeDriver;
 use CodeTechNL\TaskBridge\Enums\RunStatus;
 use CodeTechNL\TaskBridge\Enums\TriggeredBy;
@@ -60,6 +61,10 @@ class TaskBridgeServiceProvider extends ServiceProvider
 
         $this->registerJobsFromConfig();
         $this->registerQueueListeners();
+
+        if ($this->app->runningInConsole()) {
+            $this->commands([ImportSchedulesCommand::class]);
+        }
     }
 
     private function registerJobsFromConfig(): void
