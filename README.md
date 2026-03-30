@@ -45,6 +45,17 @@ Your job class (implements ShouldQueue)
 
 Your existing Laravel scheduler (`schedule:run`) keeps working unchanged. TaskBridge adds a separate path for jobs that should be triggered by EventBridge, removing the requirement for a continuously running server or cron daemon for those specific tasks.
 
+## Admin UI
+
+A Filament admin panel integration is available as a separate package:
+
+| Package | Filament version | Status |
+|---------|-----------------|--------|
+| [`codetechnl/laravel-taskbridge-filament-3`](https://packagist.org/packages/codetechnl/laravel-taskbridge-filament-3) | Filament v3 | Available |
+| `codetechnl/laravel-taskbridge-filament-4` | Filament v4 | Coming soon |
+
+The Filament package adds a full CRUD interface for managing scheduled jobs, viewing run history, triggering manual executions, and configuring constructor arguments — all without touching AWS directly. See its [README](../taskbridge-filament-3/README.md) for installation and configuration details.
+
 ## Requirements
 
 - PHP 8.3+
@@ -140,11 +151,6 @@ class SendDailyReport implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public function cronExpression(): string
-    {
-        return '0 8 * * *'; // every day at 08:00
-    }
-
     public function handle(): void
     {
         // your logic here
@@ -152,9 +158,23 @@ class SendDailyReport implements ShouldQueue
 }
 ```
 
-### `cronExpression()` is optional
+### Predefined cron expression
 
-You do not need to add `cronExpression()` to the job class. If omitted, the cron must be set manually when creating the job record in the UI. This is useful when the schedule differs per environment.
+Implement `HasPredefinedCronExpression` to bake a default cron expression into the job class. The Filament UI and `sync()` will pre-fill it automatically:
+
+```php
+use CodeTechNL\TaskBridge\Contracts\HasPredefinedCronExpression;
+
+class SendDailyReport implements HasPredefinedCronExpression, ShouldQueue
+{
+    public function cronExpression(): string
+    {
+        return '0 8 * * *'; // every day at 08:00
+    }
+
+    public function handle(): void { ... }
+}
+```
 
 Alternatively, set the cron directly on the `#[SchedulableJob]` attribute:
 
@@ -163,23 +183,18 @@ Alternatively, set the cron directly on the `#[SchedulableJob]` attribute:
 class SendDailyReport implements ShouldQueue { ... }
 ```
 
+The interface and attribute are both optional. If neither is set, the cron must be configured manually when creating the job record in the UI — useful when the schedule differs per environment.
+
 The priority order is: `#[SchedulableJob(cron:)]` → `HasPredefinedCronExpression::cronExpression()` → set manually in the UI.
-
-```php
-class SendDailyReport implements ShouldQueue
-{
-    // No cronExpression() — cron is set in the UI per environment.
-
-    public function handle(): void { ... }
-}
-```
 
 ### Constructor arguments
 
 Jobs with scalar constructor parameters (`bool`, `int`, `float`, `string`, or nullable variants) are fully supported. TaskBridge discovers them automatically and the Filament UI renders an input field for each parameter.
 
 ```php
-class GenerateReport implements ShouldQueue
+use CodeTechNL\TaskBridge\Contracts\HasPredefinedCronExpression;
+
+class GenerateReport implements HasPredefinedCronExpression, ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
