@@ -1,5 +1,7 @@
 <?php
 
+use CodeTechNL\TaskBridge\Jobs\CheckMissedJobs;
+use CodeTechNL\TaskBridge\Jobs\PruneOnceSchedulesJob;
 use CodeTechNL\TaskBridge\Jobs\PruneRunsJob;
 use CodeTechNL\TaskBridge\Models\ScheduledJob;
 use CodeTechNL\TaskBridge\Models\ScheduledJobRun;
@@ -119,9 +121,17 @@ return [
     |
     */
     'jobs' => [
-        // Built-in maintenance job — prunes run logs older than logging.retention_days.
-        // Uncomment to have TaskBridge schedule this automatically.
+        // Built-in maintenance jobs — uncomment any you want TaskBridge to schedule automatically.
+
+        // Deletes run log entries older than logging.retention_days. Runs daily at 03:00.
         PruneRunsJob::class,
+
+        // Deletes expired one-time schedule rows older than logging.retention_days. Runs daily at 03:00.
+        // PruneOnceSchedulesJob::class,
+
+        // Dispatches a JobMissed event for jobs that haven't run within twice their cron interval.
+        // Requires taskbridge.monitoring.notify_on_miss to be true to take effect.
+        // CheckMissedJobs::class,
     ],
 
     /*

@@ -3,6 +3,7 @@
 namespace CodeTechNL\TaskBridge;
 
 use Carbon\Carbon;
+use CodeTechNL\TaskBridge\Concerns\SkipOnMaintenance;
 use CodeTechNL\TaskBridge\Contracts\RunsConditionally;
 use CodeTechNL\TaskBridge\Drivers\EventBridgeDriver;
 use CodeTechNL\TaskBridge\Enums\RunStatus;
@@ -114,6 +115,10 @@ class TaskBridge
         if (! $force) {
             if (! $record->enabled) {
                 return $this->skipRun($record, $logging, $dryRun, 'Job is disabled');
+            }
+
+            if (method_exists($metaInstance, 'shouldSkipInMaintenanceMode') && $metaInstance->shouldSkipInMaintenanceMode() && app()->isMaintenanceMode()) {
+                return $this->skipRun($record, $logging, $dryRun, 'Application is in maintenance mode');
             }
 
             if ($metaInstance instanceof RunsConditionally && ! $metaInstance->shouldRun()) {

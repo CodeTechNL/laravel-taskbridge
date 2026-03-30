@@ -2,6 +2,7 @@
 
 namespace CodeTechNL\TaskBridge\Middleware;
 
+use CodeTechNL\TaskBridge\Concerns\SkipOnMaintenance;
 use CodeTechNL\TaskBridge\Contracts\RunsConditionally;
 use CodeTechNL\TaskBridge\Enums\RunStatus;
 use CodeTechNL\TaskBridge\Enums\TriggeredBy;
@@ -46,6 +47,9 @@ class TaskBridgeMiddleware
             if (! $record->enabled) {
                 return;
             }
+            if (method_exists($job, 'shouldSkipInMaintenanceMode') && $job->shouldSkipInMaintenanceMode() && app()->isMaintenanceMode()) {
+                return;
+            }
             if ($job instanceof RunsConditionally && ! $job->shouldRun()) {
                 return;
             }
@@ -67,6 +71,13 @@ class TaskBridgeMiddleware
         // Check enabled state.
         if (! $record->enabled) {
             $this->markSkipped($record, $run, 'Job is disabled');
+
+            return;
+        }
+
+        // Check SkipOnMaintenance trait.
+        if (method_exists($job, 'shouldSkipInMaintenanceMode') && $job->shouldSkipInMaintenanceMode() && app()->isMaintenanceMode()) {
+            $this->markSkipped($record, $run, 'Application is in maintenance mode');
 
             return;
         }

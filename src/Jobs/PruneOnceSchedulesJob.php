@@ -2,6 +2,7 @@
 
 namespace CodeTechNL\TaskBridge\Jobs;
 
+use CodeTechNL\TaskBridge\Attributes\SchedulableJob;
 use CodeTechNL\TaskBridge\Contracts\HasCustomLabel;
 use CodeTechNL\TaskBridge\Contracts\HasGroup;
 use CodeTechNL\TaskBridge\Contracts\HasPredefinedCronExpression;
@@ -22,6 +23,7 @@ use Illuminate\Queue\SerializesModels;
  * Register this job in config/taskbridge.php under 'jobs' to have it
  * scheduled automatically.
  */
+#[SchedulableJob(name: 'Prune One-Time Schedules', group: 'TaskBridge', cron: '0 3 * * *')]
 class PruneOnceSchedulesJob implements HasCustomLabel, HasGroup, HasPredefinedCronExpression, ShouldQueue
 {
     use Dispatchable;

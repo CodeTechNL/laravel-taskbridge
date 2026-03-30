@@ -2,6 +2,10 @@
 
 namespace CodeTechNL\TaskBridge\Jobs;
 
+use CodeTechNL\TaskBridge\Attributes\SchedulableJob;
+use CodeTechNL\TaskBridge\Contracts\HasCustomLabel;
+use CodeTechNL\TaskBridge\Contracts\HasGroup;
+use CodeTechNL\TaskBridge\Contracts\HasPredefinedCronExpression;
 use CodeTechNL\TaskBridge\Events\JobMissed;
 use CodeTechNL\TaskBridge\Models\ScheduledJob;
 use CodeTechNL\TaskBridge\Support\CronTranslator;
@@ -12,12 +16,28 @@ use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Event;
 
-class CheckMissedJobs implements ShouldQueue
+#[SchedulableJob(name: 'Check Missed Jobs', group: 'TaskBridge', cron: '0 * * * *')]
+class CheckMissedJobs implements HasCustomLabel, HasGroup, HasPredefinedCronExpression, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;
     use Queueable;
     use SerializesModels;
+
+    public function cronExpression(): string
+    {
+        return '0 * * * *'; // Every hour
+    }
+
+    public function taskLabel(): string
+    {
+        return 'Check Missed Jobs';
+    }
+
+    public function group(): string
+    {
+        return 'TaskBridge';
+    }
 
     public function handle(): void
     {

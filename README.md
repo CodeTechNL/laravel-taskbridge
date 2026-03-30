@@ -284,6 +284,38 @@ class SendDailyReport implements HasGroup, ShouldQueue
 }
 ```
 
+### `SkipOnMaintenance` — skip when the application is down
+
+Include this trait to automatically skip execution whenever the application is in maintenance mode. No configuration required — the run is recorded as `Skipped` in the history.
+
+```php
+use CodeTechNL\TaskBridge\Concerns\SkipOnMaintenance;
+
+class SendDailyReport implements ShouldQueue
+{
+    use SkipOnMaintenance;
+
+    public function handle(): void { ... }
+}
+```
+
+TaskBridge checks `shouldSkipInMaintenanceMode()` **before** evaluating `RunsConditionally`, so a job with both will short-circuit on maintenance without ever calling `shouldRun()`. To add a custom runtime condition on top, implement `RunsConditionally` alongside the trait:
+
+```php
+use CodeTechNL\TaskBridge\Concerns\SkipOnMaintenance;
+use CodeTechNL\TaskBridge\Contracts\RunsConditionally;
+
+class SendDailyReport implements RunsConditionally, ShouldQueue
+{
+    use SkipOnMaintenance;
+
+    public function shouldRun(): bool
+    {
+        return $this->someCondition(); // only checked when not in maintenance
+    }
+}
+```
+
 ### `RunsConditionally` — runtime skip condition
 
 ```php
@@ -293,7 +325,7 @@ class SendDailyReport implements RunsConditionally, ShouldQueue
 {
     public function shouldRun(): bool
     {
-        return ! app()->isMaintenanceMode();
+        return $this->someCondition();
     }
 }
 ```
@@ -536,19 +568,11 @@ return [
 
 ## Built-in maintenance jobs
 
+All three built-in jobs are listed in `config/taskbridge.php` under `jobs`. `PruneRunsJob` is enabled by default; uncomment the others as needed.
+
 ### PruneRunsJob
 
 Deletes run log entries older than a configurable retention window. Runs daily at 03:00.
-
-Enable it by adding it to the `jobs` array in config:
-
-```php
-'jobs' => [
-    \CodeTechNL\TaskBridge\Jobs\PruneRunsJob::class,
-],
-```
-
-Then sync to register it in EventBridge.
 
 The retention period is resolved in this order:
 1. The `$retentionDays` constructor argument — configured via the Filament UI when creating or editing the job record
@@ -557,19 +581,15 @@ The retention period is resolved in this order:
 
 ### PruneOnceSchedulesJob
 
-Deletes `taskbridge_jobs` rows where `run_once_at` is set and the scheduled time is older than the configured retention window. This keeps the table clean after one-time schedules have fired.
-
-```php
-'jobs' => [
-    \CodeTechNL\TaskBridge\Jobs\PruneOnceSchedulesJob::class,
-],
-```
+Deletes `taskbridge_jobs` rows where `run_once_at` is set and the scheduled time is older than the configured retention window. Keeps the table clean after one-time schedules have fired. Runs daily at 03:00.
 
 Constructor argument `?int $retentionDays = null` — configure per-environment in the UI, or falls back to `taskbridge.logging.retention_days`.
 
 ### CheckMissedJobs
 
-Monitors jobs that haven't run within twice their expected cron interval and dispatches a `JobMissed` event. Listen to this event to send alerts.
+Monitors jobs that haven't run within twice their expected cron interval and dispatches a `JobMissed` event. Runs every hour. Listen to this event to send alerts.
+
+Requires `taskbridge.monitoring.notify_on_miss` to be `true` to take effect.
 
 ## Events
 
@@ -631,3 +651,7 @@ This creates `lang/vendor/taskbridge/en/enums.php`. Copy and translate for other
 ```bash
 ./vendor/bin/pest
 ```
+
+---
+
+*This package was fully built with [Claude Code](https://claude.ai/claude-code).*
