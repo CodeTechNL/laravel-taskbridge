@@ -36,6 +36,13 @@ return [
     |
     | Override via TASKBRIDGE_NAME_PREFIX or set to null to disable.
     |
+    | ⚠  Identifier length limit: 64 characters
+    |    The full identifier (prefix + class basename) must not exceed 64 characters.
+    |    If it does, TaskBridge automatically replaces the class-name part with its
+    |    MD5 hash. If even prefix + MD5 (32 hex chars) exceeds 64 characters, a
+    |    RuntimeException is thrown and the prefix must be shortened to at most
+    |    31 characters.
+    |
     */
     'name_prefix' => env('TASKBRIDGE_NAME_PREFIX', Str::slug(env('APP_ENV', 'local'))),
 

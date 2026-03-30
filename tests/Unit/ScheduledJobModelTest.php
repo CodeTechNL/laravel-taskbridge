@@ -3,6 +3,7 @@
 use CodeTechNL\TaskBridge\Enums\RunStatus;
 use CodeTechNL\TaskBridge\Models\ScheduledJob;
 use CodeTechNL\TaskBridge\Support\ScheduledJobCollection;
+use Illuminate\Support\Str;
 
 describe('ScheduledJob model', function () {
     describe('identifierFromClass', function () {
@@ -31,6 +32,66 @@ describe('ScheduledJob model', function () {
 
             expect(ScheduledJob::identifierFromClass('App\\Jobs\\SendDailyReport'))
                 ->toBe('production-send-daily-report');
+        });
+
+        it('returns the identifier unchanged when it is exactly 64 characters', function () {
+            // Craft a class name whose kebab basename is exactly 64 chars (no prefix).
+            $sixtyFourChars = str_repeat('a', 64);
+            $class = "App\\Jobs\\{$sixtyFourChars}";
+
+            $identifier = ScheduledJob::identifierFromClass($class);
+
+            expect(strlen($identifier))->toBe(64);
+            expect($identifier)->toBe(str_repeat('a', 64));
+        });
+
+        it('replaces the class-name part with its MD5 hash when the identifier exceeds 64 characters', function () {
+            // 65-char basename → kebab → 65 chars → triggers MD5 fallback.
+            $longClass = 'App\\Jobs\\'.str_repeat('A', 65);
+            $expectedHash = md5(Str::kebab(str_repeat('A', 65)));
+
+            $identifier = ScheduledJob::identifierFromClass($longClass);
+
+            expect($identifier)->toBe($expectedHash);
+            expect(strlen($identifier))->toBeLessThanOrEqual(64);
+        });
+
+        it('replaces with MD5 and still prepends the name_prefix', function () {
+            config()->set('taskbridge.name_prefix', 'prod');
+
+            // 65-char class name → kebab → 65 chars → triggers MD5 fallback.
+            $longClass = 'App\\Jobs\\'.str_repeat('A', 65);
+            $expectedHash = md5(Str::kebab(str_repeat('A', 65)));
+
+            $identifier = ScheduledJob::identifierFromClass($longClass);
+
+            expect($identifier)->toBe("prod-{$expectedHash}");
+            expect(strlen($identifier))->toBeLessThanOrEqual(64);
+        });
+
+        it('does not include the name_prefix in the MD5 hash', function () {
+            config()->set('taskbridge.name_prefix', 'staging');
+
+            $longClass = 'App\\Jobs\\'.str_repeat('B', 65);
+            $bareHash = md5(Str::kebab(str_repeat('B', 65)));
+            $withPrefix = "staging-{$bareHash}";
+            $withoutPrefixHash = md5('staging-'.Str::kebab(str_repeat('B', 65)));
+
+            $identifier = ScheduledJob::identifierFromClass($longClass);
+
+            expect($identifier)->toBe($withPrefix);
+            expect($identifier)->not->toBe("staging-{$withoutPrefixHash}");
+        });
+
+        it('throws a RuntimeException when even prefix + MD5 exceeds 64 characters', function () {
+            // MD5 = 32 chars. prefix + "-" + MD5 = prefix + 33.
+            // To exceed 64: prefix must be > 31 chars.
+            config()->set('taskbridge.name_prefix', str_repeat('x', 32));
+
+            $longClass = 'App\\Jobs\\'.str_repeat('Z', 65);
+
+            expect(fn () => ScheduledJob::identifierFromClass($longClass))
+                ->toThrow(RuntimeException::class, 'exceeds 64 characters even after MD5 hashing');
         });
     });
 
