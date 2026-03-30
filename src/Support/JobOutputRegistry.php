@@ -52,6 +52,35 @@ class JobOutputRegistry
     }
 
     /**
+     * Append a single value to a list key for this class.
+     *
+     * Unlike accumulate(), the key is always stored as an array — even on the
+     * very first call. This guarantees that getOutputFromReport('key', [])
+     * always returns a type-safe array, making count() / foreach safe without
+     * any wrapping on the caller side.
+     *
+     * Use this inside loops where you collect one item per iteration:
+     *
+     *   $this->appendToReport('send_to', $company->owner->email);
+     *
+     * Mixing appendItem() and accumulate() on the same key is supported:
+     * accumulate() will merge into the existing array as usual.
+     */
+    public static function appendItem(string $class, string $key, mixed $value): void
+    {
+        $existing = self::$bag[$class] ?? [];
+        $current = $existing[$key] ?? [];
+
+        if (! is_array($current)) {
+            $current = [$current];
+        }
+
+        $current[] = $value;
+        $existing[$key] = $current;
+        self::$bag[$class] = $existing;
+    }
+
+    /**
      * Read the current accumulated bag without clearing it.
      *
      * Used by HasJobOutput::getOutputFromReport() so the job can inspect

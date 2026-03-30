@@ -27,13 +27,39 @@ trait HasJobOutput
     /**
      * Push a single key/value pair into the accumulated output bag.
      *
-     * Shorthand for reportOutput([$key => $value]) — convenient inside loops:
+     * Shorthand for reportOutput([$key => $value]) — convenient for scalar
+     * summary values. Note: the first call sets the value as-is (scalar);
+     * subsequent calls on the same key will stack them into an array.
+     * Use appendToReport() when building a list inside a loop.
      *
-     *   $this->pushToReport('send_to', $company->owner->email);
+     *   $this->pushToReport('total_count', $count);
      */
     public function pushToReport(string $key, mixed $value): void
     {
         JobOutputRegistry::accumulate(static::class, [$key => $value]);
+    }
+
+    /**
+     * Append a single value to a list key — always stores as an array.
+     *
+     * Unlike pushToReport(), the very first call already wraps the value in
+     * an array, so getOutputFromReport('key', []) always returns a proper
+     * array regardless of how many times this was called. Safe to pass to
+     * count() or iterate over without any extra wrapping.
+     *
+     * Designed for use inside loops where you collect one item per iteration:
+     *
+     *   $companies->each(function (Company $company) {
+     *       $this->appendToReport('send_to', $company->owner->email);
+     *   });
+     *
+     *   $this->reportOutput([
+     *       'total_count' => count($this->getOutputFromReport('send_to', [])),
+     *   ]);
+     */
+    public function appendToReport(string $key, mixed $value): void
+    {
+        JobOutputRegistry::appendItem(static::class, $key, $value);
     }
 
     /**
