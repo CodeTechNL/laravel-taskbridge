@@ -2,13 +2,14 @@
 
 namespace CodeTechNL\TaskBridge\Tests\Fixtures;
 
+use CodeTechNL\TaskBridge\Contracts\HasPredefinedCronExpression;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
-class ExampleScheduledJob implements ShouldQueue
+class ExampleScheduledJob implements HasPredefinedCronExpression, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;

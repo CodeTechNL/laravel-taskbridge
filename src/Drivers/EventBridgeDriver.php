@@ -93,7 +93,14 @@ class EventBridgeDriver
 
     public function remove(string $identifier): void
     {
-        $this->deleteSchedule($this->getClient(), $this->scheduleName($identifier));
+        // One-time schedule records store the full schedule name (including the prefix)
+        // as their identifier. Recurring job identifiers do not include the prefix.
+        // Detect which case we have to avoid double-prefixing.
+        $scheduleName = str_starts_with($identifier, $this->prefix.'-')
+            ? $identifier
+            : $this->scheduleName($identifier);
+
+        $this->deleteSchedule($this->getClient(), $scheduleName);
     }
 
     public function list(): array
@@ -167,6 +174,20 @@ class EventBridgeDriver
     {
         try {
             $client->createSchedule($this->buildSchedulePayload($job, $scheduleName, $cronExpression, $job->constructor_arguments ?? []));
+        } catch (\Aws\Exception\AwsException $e) {
+            if ($e->getAwsErrorCode() === 'ConflictException') {
+                // Schedule already exists (e.g. listing was paginated and missed it) — update instead.
+                $this->updateSchedule($client, $job, $scheduleName, $cronExpression);
+
+                return;
+            }
+
+            Log::error('TaskBridge EventBridge: failed to create schedule', [
+                'schedule' => $scheduleName,
+                'error' => $e->getMessage(),
+            ]);
+
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('TaskBridge EventBridge: failed to create schedule', [
                 'schedule' => $scheduleName,

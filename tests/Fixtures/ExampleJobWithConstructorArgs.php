@@ -4,6 +4,7 @@ namespace CodeTechNL\TaskBridge\Tests\Fixtures;
 
 use CodeTechNL\TaskBridge\Contracts\HasCustomLabel;
 use CodeTechNL\TaskBridge\Contracts\HasGroup;
+use CodeTechNL\TaskBridge\Contracts\HasPredefinedCronExpression;
 use CodeTechNL\TaskBridge\Contracts\RunsConditionally;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -18,7 +19,7 @@ use Illuminate\Queue\SerializesModels;
  * would throw a TypeError. JobInspector::make() bypasses the constructor
  * and must still be able to read metadata and check interfaces.
  */
-class ExampleJobWithConstructorArgs implements HasCustomLabel, HasGroup, RunsConditionally, ShouldQueue
+class ExampleJobWithConstructorArgs implements HasCustomLabel, HasGroup, HasPredefinedCronExpression, RunsConditionally, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;

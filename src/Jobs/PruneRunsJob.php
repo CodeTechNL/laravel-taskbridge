@@ -4,6 +4,7 @@ namespace CodeTechNL\TaskBridge\Jobs;
 
 use CodeTechNL\TaskBridge\Contracts\HasCustomLabel;
 use CodeTechNL\TaskBridge\Contracts\HasGroup;
+use CodeTechNL\TaskBridge\Contracts\HasPredefinedCronExpression;
 use CodeTechNL\TaskBridge\Models\ScheduledJobRun;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -22,7 +23,7 @@ use Illuminate\Queue\SerializesModels;
  *   2. taskbridge.logging.retention_days config value
  *   3. Hard-coded fallback of 30 days
  */
-class PruneRunsJob implements HasCustomLabel, HasGroup, ShouldQueue
+class PruneRunsJob implements HasCustomLabel, HasGroup, HasPredefinedCronExpression, ShouldQueue
 {
     use Dispatchable;
     use InteractsWithQueue;
