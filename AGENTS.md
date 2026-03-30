@@ -47,6 +47,31 @@ class ImportProducts implements ReportsTaskOutput, ShouldQueue
 
 **`cronExpression()` is declared by `HasPredefinedCronExpression`.** Implementing the interface is optional — jobs without it require the cron to be set in the UI. The Filament resource checks `$instance instanceof HasPredefinedCronExpression` (not `method_exists`).
 
+**`TriggeredBy` enum has 4 cases.** The four cases are: `Scheduler` (`scheduler`, color `gray`), `Manual` (`manual`, color `primary`), `DryRun` (`dry_run`, color `warning`), and `ScheduledOnce` (`scheduled_once`, color `info`). Do not treat `ScheduledOnce` as a missing or future case — it is present and must be handled in any `match` expression over `TriggeredBy`.
+
+**`taskbridge.schedules` entries MUST use array format.** Each entry must be an array with at minimum a `cron` key:
+```php
+\App\Jobs\SendDailyReport::class => ['cron' => '0 8 * * *', 'arguments' => []],
+```
+Plain-string shorthand (e.g. `\App\Jobs\SendDailyReport::class => '0 8 * * *'`) is not accepted and will fail validation.
+
+**`identifierFromClass()` enforces a 64-char limit.** If the generated identifier (`prefix-kebab-class-name`) exceeds 64 characters, the bare class-name part (not the prefix) is replaced with `md5($bareClassName)`. The prefix is NOT included in the hash input. If `prefix + "-" + md5` would still exceed 64 characters, a `RuntimeException` is thrown. This means prefixes longer than 31 characters may cause an exception.
+
+**`ImportSchedulesCommand::parseEntry()` and `::validateArguments()` are public static helpers.** These two methods on `ImportSchedulesCommand` encapsulate all entry-level validation logic. When Filament actions (e.g. `ImportSchedulesAction`) need to validate or parse a `schedules` config entry, they must call these static methods — never duplicate the logic in the Filament package.
+
+**Migration `down()` — split into two `Schema::table` calls when dropping a column with a unique index.** SQLite cannot drop a column that has an attached unique index in a single `Schema::table` call. Always drop the index first in one call, then drop the column in a second call:
+```php
+public function down(): void
+{
+    Schema::table('taskbridge_jobs', function (Blueprint $table) {
+        $table->dropUnique(['run_once_schedule_name']);
+    });
+    Schema::table('taskbridge_jobs', function (Blueprint $table) {
+        $table->dropColumn(['run_once_at', 'run_once_schedule_name']);
+    });
+}
+```
+
 **Always use enum cases in queries** — `status` and `triggered_by` are Eloquent-cast enums:
 ```php
 // correct

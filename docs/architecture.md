@@ -25,6 +25,26 @@ When optional interfaces are not implemented, TaskBridge derives values automati
 
 ---
 
+## Commands
+
+### `ImportSchedulesCommand` (artisan: `taskbridge:import-schedules`)
+
+Reads `config('taskbridge.schedules')`, validates each entry, and upserts it into the database.
+
+- Invalid entries are skipped with a warning; processing continues with the remaining entries
+- Returns `Command::FAILURE` if any entry failed; `Command::SUCCESS` if all entries were imported
+
+**Public static helpers** (reused by Filament actions):
+
+| Method | Signature | Description |
+|--------|-----------|-------------|
+| `parseEntry` | `parseEntry(array $value): array` | Normalises a single config entry; validates structure, class existence, scalar constructor, valid cron, and correct argument count. Returns an array suitable for upsert. |
+| `validateArguments` | `validateArguments(string $class, array $arguments): ?string` | Checks that the argument count matches the constructor's required parameters. Returns an error string on failure, or `null` on success. |
+
+These methods must be called from Filament (e.g. `ImportSchedulesAction`) rather than duplicating the logic.
+
+---
+
 ## Models
 
 ### `ScheduledJob` (`taskbridge_jobs`)
@@ -52,7 +72,7 @@ When optional interfaces are not implemented, TaskBridge derives values automati
 - `isOnce(): bool` — returns `true` when `run_once_at !== null`
 - `scopeRecurring($query)` — `whereNull('run_once_at')` — use this when querying jobs that should be synced/enabled/disabled
 - `runs()` hasMany → `ScheduledJobRun`
-- `identifierFromClass(string $class)` static — applies `taskbridge.name_prefix` then kebab-cases the basename
+- `identifierFromClass(string $class)` static — applies `taskbridge.name_prefix` then kebab-cases the basename. **64-char limit enforced:** if the result exceeds 64 characters, the bare class-name segment is replaced with `md5($bareClassName)` (prefix excluded from hash). If `prefix + "-" + md5` would still exceed 64 chars, a `RuntimeException` is thrown.
 - Returns `ScheduledJobCollection` from `newCollection()`
 
 ### `ScheduledJobRun` (`taskbridge_job_runs`)
@@ -93,6 +113,7 @@ When optional interfaces are not implemented, TaskBridge derives values automati
 | `Scheduler` | `scheduler` | `gray` |
 | `Manual` | `manual` | `primary` |
 | `DryRun` | `dry_run` | `warning` |
+| `ScheduledOnce` | `scheduled_once` | `info` |
 
 `label()` → translatable via `taskbridge::enums.triggered_by.*`
 
@@ -269,7 +290,7 @@ Used by "Run now" and "Dry run" UI actions. Runs synchronously in the HTTP reque
 | `000011` | Make `cron_expression` nullable on jobs |
 | `000012–000014` | Reserved / internal |
 | `000015` | Add `constructor_arguments` (json, nullable) to jobs |
-| `000016` | Add `run_once_at` (timestamp, nullable) and `run_once_schedule_name` (string, nullable, unique) to jobs |
+| `000016` | Add `run_once_at` (timestamp, nullable) and `run_once_schedule_name` (string, nullable, unique) to jobs. **SQLite `down()` pattern:** the `down()` method uses two separate `Schema::table` calls — first to drop the unique index, then to drop the columns. SQLite cannot drop a column with an attached unique index in a single call. |
 
 ---
 
@@ -284,6 +305,8 @@ Test fixtures (`tests/Fixtures/`):
 | `ExampleScheduledJob` | Basic `ShouldQueue` job, cron `0 * * * *` |
 | `ExampleConditionalJob` | Implements `RunsConditionally`; `shouldRun` configurable via constructor |
 | `ExampleOutputJob` | Implements `ReportsTaskOutput` + `HasJobOutput`; reports `['processed' => 42, 'skipped' => 3]` |
+
+**`CommandTestCase`** (`tests/Commands/`): A specialised test case base class for command tests. It sets up the database schema manually (via `Schema::create` calls) and tears it down after each test, bypassing the normal migration chain. This is necessary because several migrations in the chain fail on SQLite when run in reverse (see the known issue in the main AGENTS.md). Tests for `ImportSchedulesCommand` live in `tests/Commands/`.
 
 ## Built-in jobs
 

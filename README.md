@@ -19,6 +19,7 @@ Laravel's built-in scheduler still works alongside this package. TaskBridge is a
 - **Domain events** — hook into the execution lifecycle via Laravel events
 - **Built-in maintenance jobs** — `PruneRunsJob` and `PruneOnceSchedulesJob` ship with the package
 - **Custom models** — extend the default models for your own scopes and relations
+- **Predefined schedules** — define jobs and their cron expressions in `config/taskbridge.php` and import them with a single artisan command
 
 ## How it works
 
@@ -446,6 +447,40 @@ class SendDailyReport implements ShouldQueue { ... }
 
 All three parameters are optional. Omitting them falls back to the corresponding interface, then to auto-derived defaults. You may use `#[SchedulableJob]` with no arguments purely as a discovery marker while keeping existing interface implementations unchanged.
 
+## Predefined schedules
+
+You can define jobs and their configuration directly in `config/taskbridge.php` under the `schedules` key, then import them into the database with a single artisan command:
+
+```php
+// config/taskbridge.php
+'schedules' => [
+    \App\Jobs\SendDailyReport::class => [
+        'cron'      => '0 8 * * *',
+        'arguments' => [],
+    ],
+    \App\Jobs\GenerateReport::class => [
+        'cron'      => '0 6 * * 1',
+        'arguments' => ['weekly', 500, false],
+    ],
+],
+```
+
+Run the import command to upsert all entries into the database:
+
+```bash
+php artisan taskbridge:import-schedules
+```
+
+The command validates each entry before importing. Invalid entries are skipped (with a warning) and processing continues with the rest. The command returns a non-zero exit code if any entry failed validation.
+
+**Validation rules:**
+- Each entry must be an array with a `cron` key — plain-string shorthand is not accepted
+- The class must exist and have a scalar-only constructor
+- The cron expression must be valid (5-part or 6-part AWS format)
+- The `arguments` array must match the number of constructor parameters
+
+> **Note:** Each entry is an upsert. Running the command a second time updates existing records rather than creating duplicates.
+
 ## Task name prefix
 
 Job identifiers are prefixed to avoid collisions across environments. The default is the slugified `APP_ENV` value:
@@ -460,6 +495,15 @@ Override via `TASKBRIDGE_NAME_PREFIX` or set to `null` to disable:
 ```dotenv
 TASKBRIDGE_NAME_PREFIX=myapp
 ```
+
+### 64-character identifier limit
+
+EventBridge schedule names have a maximum length. TaskBridge enforces a **64-character limit** on generated identifiers:
+
+- If `prefix + "-" + kebab-class-name` exceeds 64 characters, the bare class-name part is replaced with its `md5()` hash (the prefix is **not** included in the hash input).
+- If `prefix + "-" + md5` would still exceed 64 characters (i.e. the prefix alone is longer than 31 characters), a `RuntimeException` is thrown.
+
+This means prefixes up to 31 characters are always safe. Prefixes longer than 31 characters may cause an exception if the identifier would still overflow after md5 substitution.
 
 ## Syncing to EventBridge
 
@@ -558,6 +602,15 @@ return [
     ],
 
     'jobs' => [],
+
+    // Predefined schedules — imported via `php artisan taskbridge:import-schedules`
+    // Each entry must be an array with a 'cron' key. Plain-string shorthand is not supported.
+    'schedules' => [
+        // \App\Jobs\SendDailyReport::class => [
+        //     'cron'      => '0 8 * * *',
+        //     'arguments' => [],
+        // ],
+    ],
 
     'logging' => [
         'enabled'        => env('TASKBRIDGE_LOGGING_ENABLED', true),
