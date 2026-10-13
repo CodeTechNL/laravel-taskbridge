@@ -36,6 +36,30 @@ class EventBridgeDriver
     public const ONCE_PREFIX = 'once-';
 
     /**
+     * Key under which the SQS job payload carries the name of the schedule
+     * that fired it. The queue listener uses it to find the taskbridge_jobs
+     * row (and, for a one-time schedule, the pending run) the job belongs to.
+     */
+    public const PAYLOAD_SCHEDULE_KEY = 'taskbridge_schedule';
+
+    /**
+     * AWS EventBridge Scheduler rejects schedule names longer than this.
+     */
+    public const MAX_SCHEDULE_NAME_LENGTH = 64;
+
+    /**
+     * Random characters appended to a one-time schedule name so that several
+     * one-time schedules for the same job can coexist.
+     */
+    private const ONCE_SUFFIX_LENGTH = 8;
+
+    /**
+     * Hexadecimal characters of the identifier's MD5 that replace its tail
+     * when the identifier does not fit the one-time name budget.
+     */
+    private const ONCE_HASH_LENGTH = 8;
+
+    /**
      * EventBridge Scheduler returns at most 100 schedules per listSchedules()
      * page; larger groups are read by following NextToken.
      */
@@ -130,18 +154,17 @@ class EventBridgeDriver
      * Create a one-time EventBridge schedule that fires at the given datetime
      * and self-destructs after completion.
      *
-     * The schedule name includes a short random suffix so multiple one-time
-     * schedules can coexist for the same job without collisions.
+     * The schedule name is built by onceScheduleName(): it always fits the
+     * 64-character limit and ends in a short random suffix so multiple
+     * one-time schedules can coexist for the same job without collisions.
      *
      * Returns the schedule name so callers can reference it in log records.
-     */
-    /**
+     *
      * @param  array<int, mixed>  $arguments  Constructor arguments to bake into the SQS job payload.
      */
     public function scheduleOnce(mixed $job, Carbon $at, array $arguments = []): string
     {
-        $suffix = strtolower(Str::random(8));
-        $scheduleName = self::ONCE_PREFIX."{$job->identifier}-{$suffix}";
+        $scheduleName = $this->onceScheduleName($job->identifier);
         $atExpression = 'at('.$at->clone()->utc()->format('Y-m-d\TH:i:s').')';
 
         $client = $this->getClient();
@@ -170,6 +193,31 @@ class EventBridgeDriver
     }
 
     // ── Internal helpers ──────────────────────────────────────────────────────
+
+    /**
+     * The name of a new one-time schedule: once-{identifier}-{random suffix}.
+     *
+     * The identifier may use up to 64 characters on its own, so the one-time
+     * name needs a rule of its own to stay within the limit. An identifier
+     * that does not fit the budget left by the prefix and the suffix (50
+     * characters) is shortened deterministically, like identifierFromClass()
+     * does: its head is kept readable and its tail is replaced with the first
+     * ONCE_HASH_LENGTH hexadecimal characters of its MD5, so the same
+     * identifier always shortens to the same stem and two identifiers with
+     * the same head still get different names.
+     */
+    private function onceScheduleName(string $identifier): string
+    {
+        $suffix = strtolower(Str::random(self::ONCE_SUFFIX_LENGTH));
+        $budget = self::MAX_SCHEDULE_NAME_LENGTH - strlen(self::ONCE_PREFIX) - 1 - self::ONCE_SUFFIX_LENGTH;
+
+        if (strlen($identifier) > $budget) {
+            $head = rtrim(substr($identifier, 0, $budget - 1 - self::ONCE_HASH_LENGTH), '-');
+            $identifier = $head.'-'.substr(md5($identifier), 0, self::ONCE_HASH_LENGTH);
+        }
+
+        return self::ONCE_PREFIX."{$identifier}-{$suffix}";
+    }
 
     /**
      * Every schedule in the group, keyed by name.
@@ -303,7 +351,7 @@ class EventBridgeDriver
                     .'Set TASKBRIDGE_SCHEDULER_ROLE_ARN to the ARN of the IAM role that EventBridge should assume to publish to SQS. '
                     .'When using CDK, pass the role ARN from your CDK stack output.'
                 ),
-                'Input' => json_encode($this->buildJobPayload($job->class, $arguments)),
+                'Input' => json_encode($this->buildJobPayload($job->class, $scheduleName, $arguments)),
                 'RetryPolicy' => [
                     'MaximumEventAgeInSeconds' => $maxAge,
                     'MaximumRetryAttempts' => $maxRetries,
@@ -323,9 +371,13 @@ class EventBridgeDriver
      * deliver this payload to SQS; the Laravel queue worker deserializes the
      * command and calls handle() — meaning the arguments survive the round-trip.
      *
+     * The payload also names the schedule it belongs to (PAYLOAD_SCHEDULE_KEY).
+     * Laravel ignores the extra key; the queue listener reads it to attribute
+     * the run to the right taskbridge_jobs row.
+     *
      * @param  array<int, mixed>  $arguments
      */
-    private function buildJobPayload(string $class, array $arguments = []): array
+    private function buildJobPayload(string $class, string $scheduleName, array $arguments = []): array
     {
         $job = empty($arguments)
             ? JobInspector::make($class)
@@ -333,6 +385,7 @@ class EventBridgeDriver
 
         return [
             'uuid' => (string) Str::uuid(),
+            self::PAYLOAD_SCHEDULE_KEY => $scheduleName,
             'displayName' => $class,
             'job' => 'Illuminate\Queue\CallQueuedHandler@call',
             'maxTries' => $job->tries ?? null,

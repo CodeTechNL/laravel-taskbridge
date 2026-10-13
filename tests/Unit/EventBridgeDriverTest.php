@@ -161,6 +161,79 @@ describe('EventBridgeDriver', function () {
             expect($client->deleted)->toBe([]);
             expect($client->names())->toBe(['keep-me', $scheduleName]);
         });
+
+        it('names the schedule in the SQS payload, for one-time and recurring schedules alike', function () {
+            $client = new FakeSchedulerClient;
+            $driver = eventBridgeDriverWith($client);
+
+            $scheduleName = $driver->scheduleOnce(recurringJobNamed('keep-me'), now()->addHour());
+            $driver->sync(new ScheduledJobCollection([recurringJobNamed('keep-me')]));
+
+            $oncePayload = json_decode($client->created[0]['Target']['Input'], true);
+            $recurringPayload = json_decode($client->created[1]['Target']['Input'], true);
+
+            expect($oncePayload[EventBridgeDriver::PAYLOAD_SCHEDULE_KEY])->toBe($scheduleName);
+            expect($oncePayload['data']['commandName'])->toBe(ExampleScheduledJob::class);
+            expect($recurringPayload[EventBridgeDriver::PAYLOAD_SCHEDULE_KEY])->toBe('keep-me');
+        });
+
+        it('keeps an identifier of up to 50 characters intact in the schedule name', function () {
+            $client = new FakeSchedulerClient;
+            $driver = eventBridgeDriverWith($client);
+            $identifier = str_repeat('a', 50);
+
+            $scheduleName = $driver->scheduleOnce(recurringJobNamed($identifier), now()->addHour());
+
+            expect($scheduleName)->toMatch('/^once-'.$identifier.'-[a-z0-9]{8}$/');
+            expect(strlen($scheduleName))->toBe(EventBridgeDriver::MAX_SCHEDULE_NAME_LENGTH);
+        });
+
+        it('shortens a longer identifier so the schedule name stays within the 64-character AWS limit', function () {
+            $client = new FakeSchedulerClient;
+            $driver = eventBridgeDriverWith($client);
+            // 64 characters: the longest identifier identifierFromClass() hands out.
+            $identifier = 'production-dispatch-trial-expires-in-three-days-event-job-report';
+            expect(strlen($identifier))->toBe(64);
+
+            $scheduleName = $driver->scheduleOnce(recurringJobNamed($identifier), now()->addHour());
+
+            // The readable head survives; the tail becomes 8 hex characters of the identifier's MD5.
+            $hash = substr(md5($identifier), 0, 8);
+            expect($scheduleName)->toMatch('/^once-production-dispatch-trial-expires-in-thre-'.$hash.'-[a-z0-9]{8}$/');
+            expect(strlen($scheduleName))->toBe(EventBridgeDriver::MAX_SCHEDULE_NAME_LENGTH);
+            expect(EventBridgeDriver::isOnceScheduleName($scheduleName))->toBeTrue();
+            expect($client->created[0]['Name'])->toBe($scheduleName);
+        });
+
+        it('shortens deterministically and tells identifiers with the same head apart', function () {
+            $client = new FakeSchedulerClient;
+            $driver = eventBridgeDriverWith($client);
+            $at = now()->addHour();
+            $identifier = 'production-dispatch-trial-expires-in-three-days-event-job-report';
+            $sibling = 'production-dispatch-trial-expires-in-three-days-event-job-digest';
+
+            $first = $driver->scheduleOnce(recurringJobNamed($identifier), $at);
+            $second = $driver->scheduleOnce(recurringJobNamed($identifier), $at);
+            $third = $driver->scheduleOnce(recurringJobNamed($sibling), $at);
+
+            // Everything but the random suffix is the same for the same identifier ...
+            $stem = fn (string $name): string => substr($name, 0, -9);
+            expect($stem($first))->toBe($stem($second));
+            expect($first)->not->toBe($second);
+            // ... and differs for another identifier that shares the readable head.
+            expect($stem($third))->not->toBe($stem($first));
+            expect($third)->toStartWith('once-production-dispatch-trial-expires-in-thre-');
+        });
+
+        it('does not leave a dangling dash where the identifier is cut', function () {
+            $client = new FakeSchedulerClient;
+            $driver = eventBridgeDriverWith($client);
+            $identifier = str_repeat('a', 40).'-'.str_repeat('b', 20);
+
+            $scheduleName = $driver->scheduleOnce(recurringJobNamed($identifier), now()->addHour());
+
+            expect($scheduleName)->toMatch('/^once-a{40}-[0-9a-f]{8}-[a-z0-9]{8}$/');
+        });
     });
 
     describe('isOnceScheduleName', function () {
