@@ -203,9 +203,19 @@ class TaskBridge
      *
      * EventBridge auto-deletes the one-time schedule after it fires.
      *
+     * Pass log: false to create the EventBridge schedule only, without a
+     * taskbridge_jobs row or a pending taskbridge_job_runs row. That is the
+     * mode for callers that schedule one-time runs in bulk (wake-up calls for
+     * thousands of workflow runs, say) and must not fill the scheduled-jobs
+     * list, and for job classes that are not registered with TaskBridge: the
+     * queue listener only tracks registered classes, so their pending run row
+     * would never be completed. The returned run is then transient (unsaved)
+     * and carries the schedule name in output['aws_schedule_name'].
+     *
      * @param  array<int, mixed>  $arguments  Positional constructor arguments baked into the SQS payload.
+     * @param  bool  $log  Whether to record the schedule in taskbridge_jobs and taskbridge_job_runs.
      */
-    public function scheduleOnce(string $jobClass, Carbon $at, array $arguments = []): ScheduledJobRun
+    public function scheduleOnce(string $jobClass, Carbon $at, array $arguments = [], bool $log = true): ScheduledJobRun
     {
         if (! class_exists($jobClass)) {
             throw new \InvalidArgumentException("Class not found: {$jobClass}");
@@ -225,11 +235,19 @@ class TaskBridge
 
         $scheduleName = $this->eventBridge->scheduleOnce($driverJob, $at, $arguments);
 
-        $logging = config('taskbridge.logging.enabled', true);
         $runModel = config('taskbridge.models.scheduled_job_run', ScheduledJobRun::class);
+        $output = [
+            'job_class' => $jobClass,
+            'aws_schedule_name' => $scheduleName,
+        ];
 
-        if (! $logging) {
-            return new $runModel(['status' => RunStatus::Pending]);
+        if (! $log || ! config('taskbridge.logging.enabled', true)) {
+            return new $runModel([
+                'status' => RunStatus::Pending,
+                'triggered_by' => TriggeredBy::ScheduledOnce,
+                'scheduled_for' => $at,
+                'output' => $output,
+            ]);
         }
 
         // Create a one-time ScheduledJob row so the schedule is visible in the UI.
@@ -251,10 +269,7 @@ class TaskBridge
             'triggered_by' => TriggeredBy::ScheduledOnce,
             'scheduled_for' => $at,
             'created_at' => now(),
-            'output' => [
-                'job_class' => $jobClass,
-                'aws_schedule_name' => $scheduleName,
-            ],
+            'output' => $output,
         ]);
     }
 
