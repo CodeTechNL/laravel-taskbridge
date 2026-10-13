@@ -199,8 +199,8 @@ Wraps the AWS SDK `SchedulerClient`. All EventBridge communication happens here.
 
 - `sync(ScheduledJobCollection): SyncResult` — calls `listSchedules` (full schedule group, no name prefix filter, paged through `NextToken`) to find existing schedules; calls `updateSchedule` for matches, `createSchedule` for new ones; removes orphaned recurring schedules. One-time schedules (`once-…`) are skipped by the removal loop — they self-delete after firing. Always upserts — never diffs by `ScheduleExpression` (not returned by `listSchedules`).
 - `remove(string $identifier)` — deletes the schedule whose name equals the stored identifier directly. No prefix wrapping or double-prefix detection needed.
-- `buildSchedulePayload(ScheduledJob): array` — full request body: SQS target, retry policy, IAM role, JSON-encoded Laravel job payload. Never include `SqsParameters` — only valid for FIFO queues.
-- `scheduleOnce(ScheduledJob $job, Carbon $at, array $arguments = []): string` — creates a one-time schedule using an `at()` expression in UTC and returns its name, `once-{identifier}-{suffix}` (`ONCE_PREFIX` + identifier + 8 random characters). The EventBridge schedule has `ActionAfterCompletion: DELETE`.
+- `buildSchedulePayload(ScheduledJob): array` — full request body: SQS target, retry policy, IAM role, JSON-encoded Laravel job payload. The job payload names its schedule under `taskbridge_schedule` (`PAYLOAD_SCHEDULE_KEY`); Laravel ignores the key, the queue listener correlates by it. Never include `SqsParameters` — only valid for FIFO queues.
+- `scheduleOnce(ScheduledJob $job, Carbon $at, array $arguments = []): string` — creates a one-time schedule using an `at()` expression in UTC and returns its name, `once-{identifier}-{suffix}` (`ONCE_PREFIX` + identifier + 8 random characters). The EventBridge schedule has `ActionAfterCompletion: DELETE`. The name is built by `onceScheduleName()` and never exceeds `MAX_SCHEDULE_NAME_LENGTH` (64): an identifier longer than 50 characters is cut to its first 41 characters (a trailing dash trimmed) plus 8 hexadecimal characters of its MD5 — deterministic, so the same identifier always yields the same stem.
 - `isOnceScheduleName(string): bool` (static) — whether a schedule name carries `ONCE_PREFIX`; the guard `sync()` uses.
 - `list(): array` — every schedule in the group keyed by name, paged through `NextToken`. A failed listing yields `[]` (logged as a warning), so a sync then removes nothing and relies on create-then-update.
 - `resolveQueueUrl(?string $connection)` — reads `queue.connections.{connection}.queue` from Laravel config
@@ -252,23 +252,24 @@ There are two separate paths — do not merge them.
 Triggered when EventBridge puts a message on SQS and a queue worker picks it up.
 
 `JobProcessing` event:
-1. Extract `commandName` from SQS payload
-2. Check if the class is registered via `TaskBridge::isRegistered()` and exists in DB
-3. Create `ScheduledJobRun` (status=Running, triggered_by=Scheduler)
-4. Register a `JobQueued` listener for sub-dispatch counting
-5. Store tracking data keyed by job UUID
+1. Extract `commandName` and `taskbridge_schedule` (the name of the schedule that fired) from the SQS payload
+2. Check if the class is registered via `TaskBridge::isRegistered()`
+3. Resolve the job row (`resolveScheduledJob()`): a `once-` name maps to the row with that `run_once_schedule_name` and to nothing else (no row = the schedule was created with `log: false` = not logged); another name maps to the recurring row with that identifier; a payload without the key (a schedule created before the key existed, a job the application dispatched itself) falls back to the class, recurring row first
+4. Start the run (`startRun()`): a one-time row continues the pending run `scheduleOnce()` wrote (status=Running, started_at set); otherwise a new run is created (status=Running, triggered_by=Scheduler, or ScheduledOnce on a one-time row whose pending run is gone)
+5. Register a `JobQueued` listener for sub-dispatch counting
+6. Store tracking data keyed by job UUID
 
 `JobProcessed` event:
 1. Look up tracking by UUID
 2. Deregister `JobQueued` listener
-3. Update run: Succeeded + duration + jobs_dispatched + output from registry
-4. Update job: last_run_at + last_status
+3. Update run: Succeeded + duration + jobs_dispatched + output from registry, merged over the output the run already held (a pending run keeps its `job_class` and `aws_schedule_name`)
+4. Update job: last_run_at + last_status (on the one-time row for a one-time schedule)
 
 `JobFailed` event:
 1. Look up tracking by UUID
 2. Deregister `JobQueued` listener
-3. Update run: Failed + output with error message
-4. Update job: last_run_at + last_status
+3. Update run: Failed + output with error message, merged over the output the run already held
+4. Update job: last_run_at + last_status (on the one-time row for a one-time schedule)
 
 ### Path B — Direct execution (`TaskBridge::run()`)
 

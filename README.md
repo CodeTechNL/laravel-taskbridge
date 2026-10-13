@@ -504,6 +504,8 @@ EventBridge schedule names have a maximum length. TaskBridge enforces a **64-cha
 
 This means prefixes up to 31 characters are always safe. Prefixes longer than 31 characters may cause an exception if the identifier would still overflow after md5 substitution.
 
+One-time schedule names (`once-{identifier}-{8 random characters}`, see [One-time scheduling](#one-time-scheduling)) have a rule of their own, because an identifier may use the full 64 characters by itself: an identifier longer than 50 characters is shortened to its first 41 characters plus 8 hexadecimal characters of its `md5()`, so the name never exceeds 64 characters, the same identifier always shortens to the same stem, and two identifiers sharing a head still get different names.
+
 ## Syncing to EventBridge
 
 After adding jobs to the database (via the Filament UI or manually), sync them to EventBridge:
@@ -548,6 +550,10 @@ TaskBridge::scheduleOnce(GenerateReport::class, Carbon::parse('2024-06-01 09:00'
 
 The datetime must be in the future. It is interpreted in `config('app.timezone')` and converted to UTC for the EventBridge `at()` expression.
 
+#### Run tracking
+
+The schedule is named `once-{identifier}-{8 random characters}` (shortened when the identifier is long, see [the 64-character limit](#64-character-identifier-limit)), and the SQS payload carries that name under `taskbridge_schedule`. When the schedule fires, the queue listener finds the one-time row by the name, moves the pending run to `Running` and then to `Succeeded` or `Failed`, and stamps `last_run_at` and `last_status` on the one-time row. The run keeps the `job_class` and `aws_schedule_name` it was created with; the job's own output is merged on top. The recurring row of the same class is left alone, and a recurring schedule is tracked on the row whose identifier it is, so a one-time row for the same class never absorbs its runs.
+
 #### Without database rows
 
 Every call above also writes a `taskbridge_jobs` row and a pending `taskbridge_job_runs` row so the schedule shows up in the UI. A caller that creates one-time schedules in bulk (wake-up calls for thousands of workflow runs, say) should not fill the Scheduled Jobs list with them. Pass `log: false` to create the EventBridge schedule only:
@@ -558,7 +564,7 @@ $run = TaskBridge::scheduleOnce(WakeWorkflowRun::class, $at, [$runId], log: fals
 $run->output['aws_schedule_name']; // "once-wake-workflow-run-k3j9x2ab"
 ```
 
-Nothing is written to the database. The returned `ScheduledJobRun` is transient (not saved) and carries the schedule name in `output['aws_schedule_name']`; store it if the schedule may have to be cancelled later:
+Nothing is written to the database, and nothing is logged when the schedule fires either: there is no row to track the run on, and the recurring row of the same class is left alone. The returned `ScheduledJobRun` is transient (not saved) and carries the schedule name in `output['aws_schedule_name']`; store it if the schedule may have to be cancelled later:
 
 ```php
 TaskBridge::getEventBridge()->remove($scheduleName);
