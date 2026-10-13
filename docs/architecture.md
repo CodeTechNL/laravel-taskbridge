@@ -197,10 +197,12 @@ Fields: `created int`, `updated int`, `removed int`, `unchanged int`. Immutable 
 
 Wraps the AWS SDK `SchedulerClient`. All EventBridge communication happens here.
 
-- `sync(ScheduledJobCollection): SyncResult` — calls `listSchedules` (full schedule group, no name prefix filter) to find existing schedules; calls `updateSchedule` for matches, `createSchedule` for new ones; removes orphaned schedules. Always upserts — never diffs by `ScheduleExpression` (not returned by `listSchedules`).
+- `sync(ScheduledJobCollection): SyncResult` — calls `listSchedules` (full schedule group, no name prefix filter, paged through `NextToken`) to find existing schedules; calls `updateSchedule` for matches, `createSchedule` for new ones; removes orphaned recurring schedules. One-time schedules (`once-…`) are skipped by the removal loop — they self-delete after firing. Always upserts — never diffs by `ScheduleExpression` (not returned by `listSchedules`).
 - `remove(string $identifier)` — deletes the schedule whose name equals the stored identifier directly. No prefix wrapping or double-prefix detection needed.
 - `buildSchedulePayload(ScheduledJob): array` — full request body: SQS target, retry policy, IAM role, JSON-encoded Laravel job payload. Never include `SqsParameters` — only valid for FIFO queues.
-- `scheduleOnce(string $class, Carbon $at, array $arguments)` — creates a one-time schedule using an `at()` expression in UTC. The schedule name is `once-{identifier}-{suffix}`. The EventBridge schedule has `ActionAfterCompletion: DELETE`.
+- `scheduleOnce(ScheduledJob $job, Carbon $at, array $arguments = []): string` — creates a one-time schedule using an `at()` expression in UTC and returns its name, `once-{identifier}-{suffix}` (`ONCE_PREFIX` + identifier + 8 random characters). The EventBridge schedule has `ActionAfterCompletion: DELETE`.
+- `isOnceScheduleName(string): bool` (static) — whether a schedule name carries `ONCE_PREFIX`; the guard `sync()` uses.
+- `list(): array` — every schedule in the group keyed by name, paged through `NextToken`. A failed listing yields `[]` (logged as a warning), so a sync then removes nothing and relies on create-then-update.
 - `resolveQueueUrl(?string $connection)` — reads `queue.connections.{connection}.queue` from Laravel config
 - Schedule names equal the identifier directly (e.g. `production-send-invoice`). No additional driver-level prefix is applied.
 
@@ -226,7 +228,8 @@ Singleton bound as `taskbridge`. Accessed via the `TaskBridge` facade.
 | `resetCron(string $class)` | Clear `cron_override` + sync |
 | `sync(): SyncResult` | Sync all enabled jobs to EventBridge |
 | `getEventBridge(): EventBridgeDriver` | |
-| `run(string, bool $dryRun, bool $force): ScheduledJobRun` | |
+| `run(string, bool $dryRun, bool $force, array $arguments): ScheduledJobRun` | |
+| `scheduleOnce(string, Carbon $at, array $arguments = [], bool $log = true): ScheduledJobRun` | One-time schedule; `log: false` writes no rows, the returned run is transient and carries the name in `output['aws_schedule_name']` |
 | `all(): ScheduledJobCollection` | All jobs from DB |
 | `enabled(): ScheduledJobCollection` | Enabled jobs from DB |
 
@@ -296,7 +299,7 @@ Used by "Run now" and "Dry run" UI actions. Runs synchronously in the HTTP reque
 
 ## Testing
 
-`TaskBridgeFake` (`src/Testing/`) creates a real `EventBridgeDriver` with a null `SchedulerClient` — no AWS calls are made.
+`TaskBridgeFake::fake()` (`src/Testing/`) swaps the container's `TaskBridge` for a fake whose real `EventBridgeDriver` talks to a `FakeSchedulerClient` — no AWS calls are made. `FakeSchedulerClient` keeps the schedules of one group in memory, records every create/update/delete (`created`, `updated`, `deleted`, plus `createdNames()` etc.), and pages `listSchedules()` through `NextToken` with a configurable page size; `tests/Unit/EventBridgeDriverTest.php` hands one to a driver directly via `setClient()`. The fake is reachable through `TaskBridgeFake::schedulerClient()`.
 
 Test fixtures (`tests/Fixtures/`):
 
@@ -318,4 +321,4 @@ Test fixtures (`tests/Fixtures/`):
 
 Both prune jobs fall back to `taskbridge.logging.retention_days` config when `$retentionDays` is `null`.
 
-All tests use SQLite in-memory (Orchestra Testbench). Migrations are auto-loaded in `TestCase::setUp()`.
+All tests use SQLite in-memory (Orchestra Testbench). `TestCase::setUp()` runs the package migrations with `Artisan::call('migrate')` and registers no rollback: the database is new for every test, and the chain's `down()` methods fail on SQLite once a test has left rows the older schema cannot hold (a pending run without `started_at`, a one-time job without `cron_expression`).

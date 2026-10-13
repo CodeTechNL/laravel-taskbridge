@@ -92,6 +92,16 @@ config('taskbridge.models.scheduled_job', ScheduledJob::class)
 
 **EventBridgeDriver::sync() is always upsert.** Never add diffing logic using `ScheduleExpression` — `listSchedules` does not return that field.
 
+**`sync()` never deletes `once-` schedules.** The stale-removal loop skips every name for which `EventBridgeDriver::isOnceScheduleName()` is true. One-time schedules are not recurring jobs, never match an enabled identifier, and self-delete after firing (`ActionAfterCompletion: DELETE`). Without the guard every sync (`enable()`, `overrideCron()`, `resetCron()`, the admin Sync button) wipes all pending one-time schedules. Never remove the guard; never rename `ONCE_PREFIX` without migrating the schedules that already exist.
+
+**`fetchExistingSchedules()` follows `NextToken`.** `listSchedules` returns at most 100 schedules per page. The driver loops until no `NextToken` comes back — never reduce it to a single call, or a group with more than 100 schedules is synced against an arbitrary subset.
+
+**`scheduleOnce(..., log: false)` writes no database rows.** It creates the EventBridge schedule only and returns a transient `ScheduledJobRun` with the schedule name in `output['aws_schedule_name']`. Use it for bulk one-time schedules and for unregistered job classes (the queue listener only tracks registered classes, so their pending run row would never complete). Cancel by name via `TaskBridge::getEventBridge()->remove($name)`.
+
+**`TaskBridgeFake::fake()` installs the fake — not `enable()`.** A static `enable()` collides with the inherited `TaskBridge::enable(string $jobClass)` and the class fails to load. The fake's driver talks to `FakeSchedulerClient` (`src/Testing/`), reachable via `schedulerClient()`; it records created/updated/deleted schedules and pages `listSchedules()` through `NextToken`.
+
+**`tests/TestCase.php` migrates without rollback.** It calls `Artisan::call('migrate')` instead of `loadMigrationsFrom()`: the in-memory database is new for every test, and the chain's `down()` methods fail on SQLite once rows exist that the older schema cannot hold. Do not switch back to `loadMigrationsFrom()`.
+
 **Never add `SqsParameters` to the EventBridge payload.** `MessageGroupId` is FIFO-only; standard SQS queues reject it.
 
 **The driver method is `getEventBridge()`, not `getDriver()`.** The old `getDriver()` was removed.
@@ -102,7 +112,7 @@ config('taskbridge.models.scheduled_job', ScheduledJob::class)
 
 **`ScheduleExpressionTimezone` applies only to `cron()` and `rate()` expressions.** The `at()` expression (used by `scheduleOnce()`) is always UTC and must not include `ScheduleExpressionTimezone`. The `EventBridgeDriver` conditionally adds the timezone key only when the expression does not start with `at(`. The datetime must be converted to UTC via `->clone()->utc()` before formatting — do not call `->utc()` on the original Carbon instance, as it mutates in place.
 
-**One-time jobs have a `taskbridge_jobs` row.** `scheduleOnce()` creates a `ScheduledJob` record with `run_once_at` set. These rows are distinct from recurring job rows:
+**One-time jobs have a `taskbridge_jobs` row** (unless scheduled with `log: false`). `scheduleOnce()` creates a `ScheduledJob` record with `run_once_at` set. These rows are distinct from recurring job rows:
 - `$job->isOnce()` — returns `true` when `run_once_at !== null`
 - `ScheduledJob::recurring()` scope — `whereNull('run_once_at')` — use this whenever querying recurring jobs (e.g. in `findOrFail`, `enable`, `disable`, middleware lookup)
 - Never enable/disable or sync one-time job rows; they are read-only records

@@ -9,7 +9,7 @@ Laravel's built-in scheduler still works alongside this package. TaskBridge is a
 - **No `schedule:run` dependency** — EventBridge fires jobs directly onto SQS; your server does not need to run continuously
 - **Database-driven** — every registered job is stored in `taskbridge_jobs`; history in `taskbridge_job_runs`
 - **Recurring schedules** — standard 5-part cron or 6-part AWS cron expression
-- **One-time schedules** — dispatch a job once at a specific date/time via `scheduleOnce()`; the record is kept in the database for visibility and purged automatically by `PruneOnceSchedulesJob`
+- **One-time schedules** — dispatch a job once at a specific date/time via `scheduleOnce()`; the record is kept in the database for visibility and purged automatically by `PruneOnceSchedulesJob`, or skipped altogether with `log: false` for bulk use
 - **Scalar constructor arguments** — `bool`, `int`, `float`, `string` (and nullable variants) are serialized into the SQS payload at schedule-creation time and reconstructed by the queue worker
 - **Timezone-aware** — cron expressions are sent with `ScheduleExpressionTimezone` matching `config('app.timezone')`; one-time `at()` expressions are always converted to UTC
 - **Full run history** — every execution logged with status, duration, trigger type, sub-jobs dispatched, and structured output
@@ -515,6 +515,8 @@ $result = TaskBridge::sync();
 // $result->created, $result->updated, $result->removed
 ```
 
+A sync reads the whole schedule group (following `NextToken`, so a group with more than 100 schedules is read completely), upserts a schedule for every enabled recurring job and deletes every other recurring schedule in the group. One-time schedules (names starting with `once-`) are never deleted by a sync: EventBridge removes them itself after they fire. `enable()`, `overrideCron()` and `resetCron()` sync as well.
+
 ## Manual execution
 
 ```php
@@ -545,6 +547,26 @@ TaskBridge::scheduleOnce(GenerateReport::class, Carbon::parse('2024-06-01 09:00'
 ```
 
 The datetime must be in the future. It is interpreted in `config('app.timezone')` and converted to UTC for the EventBridge `at()` expression.
+
+#### Without database rows
+
+Every call above also writes a `taskbridge_jobs` row and a pending `taskbridge_job_runs` row so the schedule shows up in the UI. A caller that creates one-time schedules in bulk (wake-up calls for thousands of workflow runs, say) should not fill the Scheduled Jobs list with them. Pass `log: false` to create the EventBridge schedule only:
+
+```php
+$run = TaskBridge::scheduleOnce(WakeWorkflowRun::class, $at, [$runId], log: false);
+
+$run->output['aws_schedule_name']; // "once-wake-workflow-run-k3j9x2ab"
+```
+
+Nothing is written to the database. The returned `ScheduledJobRun` is transient (not saved) and carries the schedule name in `output['aws_schedule_name']`; store it if the schedule may have to be cancelled later:
+
+```php
+TaskBridge::getEventBridge()->remove($scheduleName);
+```
+
+Use `log: false` as well for job classes that are not registered with TaskBridge. The queue listener only tracks registered classes, so the pending run row of an unregistered class would never be completed.
+
+A sync of the recurring jobs leaves one-time schedules alone, logged or not.
 
 ## Enable / disable jobs
 
