@@ -25,6 +25,8 @@ class TaskBridgeFake extends TaskBridge
     /** @var array<string, string> class => cron */
     private array $cronOverrides = [];
 
+    private FakeSchedulerClient $schedulerClient;
+
     public function __construct()
     {
         $driver = new EventBridgeDriver([
@@ -38,25 +40,30 @@ class TaskBridgeFake extends TaskBridge
             ],
         ]);
 
-        // Null client — no real AWS calls during tests
-        $driver->setClient(new class
-        {
-            public function listSchedules(array $args): array
-            {
-                return ['Schedules' => []];
-            }
-
-            public function createSchedule(array $args): void {}
-
-            public function updateSchedule(array $args): void {}
-
-            public function deleteSchedule(array $args): void {}
-        });
+        // In-memory client — no real AWS calls during tests
+        $this->schedulerClient = new FakeSchedulerClient;
+        $driver->setClient($this->schedulerClient);
 
         parent::__construct($driver);
     }
 
-    public static function enable(): self
+    /**
+     * The in-memory scheduler client behind the fake's driver, for asserting
+     * which EventBridge schedules were created, updated or deleted.
+     */
+    public function schedulerClient(): FakeSchedulerClient
+    {
+        return $this->schedulerClient;
+    }
+
+    /**
+     * Swap the container's TaskBridge for this fake.
+     *
+     * Named fake() like Bus::fake(): a static enable() would collide with the
+     * inherited TaskBridge::enable(string $jobClass) and make the class fail
+     * to load.
+     */
+    public static function fake(): self
     {
         $fake = new self;
         App::instance(TaskBridge::class, $fake);

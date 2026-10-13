@@ -25,6 +25,22 @@ use Illuminate\Support\Str;
  */
 class EventBridgeDriver
 {
+    /**
+     * Name prefix of the one-time schedules created by scheduleOnce().
+     *
+     * sync() never deletes a schedule carrying it: a one-time schedule is not
+     * a recurring job, so its name never matches an enabled identifier, and
+     * EventBridge removes it itself once it has fired (ActionAfterCompletion
+     * DELETE).
+     */
+    public const ONCE_PREFIX = 'once-';
+
+    /**
+     * EventBridge Scheduler returns at most 100 schedules per listSchedules()
+     * page; larger groups are read by following NextToken.
+     */
+    private const LIST_PAGE_SIZE = 100;
+
     private string $region;
 
     private string $scheduleGroup;
@@ -52,6 +68,13 @@ class EventBridgeDriver
 
     // ── SchedulerDriver contract ───────────────────────────────────────────────
 
+    /**
+     * Bring the schedule group in line with the enabled recurring jobs.
+     *
+     * Every enabled job is upserted. Every other schedule in the group is
+     * deleted, except the one-time schedules created by scheduleOnce(): those
+     * are left alone and disappear by themselves after firing.
+     */
     public function sync(ScheduledJobCollection $enabled): SyncResult
     {
         $created = 0;
@@ -64,6 +87,10 @@ class EventBridgeDriver
 
         // Remove stale schedules
         foreach (array_keys($existing) as $scheduleName) {
+            if (self::isOnceScheduleName($scheduleName)) {
+                continue;
+            }
+
             $identifier = $this->identifierFromScheduleName($scheduleName);
 
             if (! in_array($identifier, $enabledIdentifiers)) {
@@ -114,7 +141,7 @@ class EventBridgeDriver
     public function scheduleOnce(mixed $job, Carbon $at, array $arguments = []): string
     {
         $suffix = strtolower(Str::random(8));
-        $scheduleName = "once-{$job->identifier}-{$suffix}";
+        $scheduleName = self::ONCE_PREFIX."{$job->identifier}-{$suffix}";
         $atExpression = 'at('.$at->clone()->utc()->format('Y-m-d\TH:i:s').')';
 
         $client = $this->getClient();
@@ -134,20 +161,43 @@ class EventBridgeDriver
         return $scheduleName;
     }
 
+    /**
+     * Whether a schedule name belongs to a one-time schedule created by scheduleOnce().
+     */
+    public static function isOnceScheduleName(string $scheduleName): bool
+    {
+        return str_starts_with($scheduleName, self::ONCE_PREFIX);
+    }
+
     // ── Internal helpers ──────────────────────────────────────────────────────
 
+    /**
+     * Every schedule in the group, keyed by name.
+     *
+     * Follows NextToken until the last page: a group with more than
+     * LIST_PAGE_SIZE schedules would otherwise be synced against an arbitrary
+     * subset. A failed listing yields an empty array, so sync() removes
+     * nothing and falls back to create-then-update for the enabled jobs.
+     */
     private function fetchExistingSchedules(mixed $client): array
     {
         try {
-            $result = $client->listSchedules([
-                'GroupName' => $this->scheduleGroup,
-                'MaxResults' => 100,
-            ]);
-
             $schedules = [];
-            foreach ($result['Schedules'] ?? [] as $schedule) {
-                $schedules[$schedule['Name']] = $schedule;
-            }
+            $nextToken = null;
+
+            do {
+                $result = $client->listSchedules([
+                    'GroupName' => $this->scheduleGroup,
+                    'MaxResults' => self::LIST_PAGE_SIZE,
+                    ...($nextToken !== null ? ['NextToken' => $nextToken] : []),
+                ]);
+
+                foreach ($result['Schedules'] ?? [] as $schedule) {
+                    $schedules[$schedule['Name']] = $schedule;
+                }
+
+                $nextToken = $result['NextToken'] ?? null;
+            } while ($nextToken !== null && $nextToken !== '');
 
             return $schedules;
         } catch (\Throwable $e) {
